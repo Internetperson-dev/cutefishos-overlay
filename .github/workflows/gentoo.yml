@@ -14,8 +14,7 @@ jobs:
       - name: Sync Portage
         run: |
           emerge-webrsync
-          emerge --sync
-
+          
       - name: Install base tooling
         run: |
           emerge --oneshot \
