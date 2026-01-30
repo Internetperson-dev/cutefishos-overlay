@@ -1,0 +1,55 @@
+name: Gentoo overlay build test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: gentoo/stage3:latest
+
+    steps:
+      - name: Sync Portage
+        run: |
+          emerge-webrsync
+          emerge --sync
+
+      - name: Install base tooling
+        run: |
+          emerge --oneshot \
+            app-portage/eselect-repository \
+            app-portage/gentoolkit \
+            dev-vcs/git
+
+      - name: Add Cutefish overlay
+        run: |
+          eselect repository add cutefishos git \
+            https://github.com/Internetperson-dev/cutefishos-overlay
+          emaint sync -r cutefishos
+
+      - name: Select Gentoo profile
+        run: |
+          eselect profile set default/linux/amd64/17.1
+
+      - name: Accept keywords
+        run: |
+          mkdir -p /etc/portage/package.accept_keywords
+          cat <<EOF > /etc/portage/package.accept_keywords/cutefishos
+          sys-libs/libcutefish **
+          cutefish-base/* **
+          EOF
+
+      - name: Mask fragile packages
+        run: |
+          mkdir -p /etc/portage/package.mask
+          echo "cutefish-base/cutefish-kwin-plugins" \
+            > /etc/portage/package.mask/cutefishos
+
+      - name: Build Cutefish core
+        run: |
+          emerge -av \
+            sys-libs/libcutefish \
+            cutefish-base/fishui \
+            sys-libs/cutefish-core
