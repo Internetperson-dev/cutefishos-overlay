@@ -19,7 +19,7 @@ jobs:
       - name: Install base tooling
         run: |
           emerge --oneshot \
-            app-eselect/eselect-repository \
+            app-portage/eselect-repository \
             app-portage/gentoolkit \
             dev-vcs/git
 
@@ -32,13 +32,15 @@ jobs:
       - name: Select Gentoo profile
         run: |
           eselect profile list
-          eselect profile set 3
+          eselect profile set default/linux/amd64/17.1
 
       - name: Accept keywords
         run: |
           mkdir -p /etc/portage/package.accept_keywords
           cat <<EOF > /etc/portage/package.accept_keywords/cutefishos
           sys-libs/libcutefish **
+          sys-libs/fishui **
+          sys-libs/cutefish-core **
           cutefish-base/* **
           EOF
 
@@ -50,7 +52,7 @@ jobs:
 
       - name: Build Cutefish core
         run: |
-          emerge -v \
+          emerge -v --jobs=1 --load-average=1 \
             sys-libs/libcutefish \
-            cutefish-base/fishui \
+            sys-libs/fishui \
             sys-libs/cutefish-core
