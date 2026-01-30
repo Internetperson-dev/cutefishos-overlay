@@ -50,8 +50,8 @@ jobs:
           # accept any unstable keyword if needed
           mkdir -p /etc/portage/package.accept_keywords
           echo "dev-util/ninja **" > /etc/portage/package.accept_keywords/ninja
-          emerge -v dev-util/ninja
-          emerge -v dev-util/cmake dev-qt/qtbase dev-qt/qtdeclarative kde-frameworks/kconfig
+          emerge -v dev-build/ninja
+          emerge -v dev-build/cmake dev-qt/qtbase dev-qt/qtdeclarative kde-frameworks/kconfig
 
           
       - name: Mask fragile packages
