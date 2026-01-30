@@ -31,7 +31,8 @@ jobs:
 
       - name: Select Gentoo profile
         run: |
-          eselect profile set default/linux/amd64/17.1
+          eselect profile list
+          eselect profile set default linux/amd64/23.0/desktop
 
       - name: Accept keywords
         run: |
