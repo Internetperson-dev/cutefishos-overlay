@@ -50,7 +50,7 @@ jobs:
 
       - name: Build Cutefish core
         run: |
-          emerge -av \
+          emerge -v \
             sys-libs/libcutefish \
             cutefish-base/fishui \
             sys-libs/cutefish-core
