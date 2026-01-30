@@ -19,7 +19,7 @@ jobs:
       - name: Install base tooling
         run: |
           emerge --oneshot \
-            app-portage/eselect-repository \
+            app-eselect/eselect-repository \
             app-portage/gentoolkit \
             dev-vcs/git
 
