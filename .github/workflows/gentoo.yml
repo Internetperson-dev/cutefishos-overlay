@@ -43,6 +43,17 @@ jobs:
           cutefish-base/* **
           EOF
 
+
+
+      - name: Install ninja build tool
+        run: |
+          # accept any unstable keyword if needed
+          mkdir -p /etc/portage/package.accept_keywords
+          echo "dev-util/ninja **" > /etc/portage/package.accept_keywords/ninja
+          emerge -v dev-util/ninja
+          emerge -v dev-util/cmake dev-qt/qtbase dev-qt/qtdeclarative kde-frameworks/kconfig
+
+          
       - name: Mask fragile packages
         run: |
           mkdir -p /etc/portage/package.mask
