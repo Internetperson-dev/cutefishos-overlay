@@ -65,12 +65,12 @@ jobs:
       - name: Accept keywords
         run: |
           cat <<EOF > /etc/portage/package.accept_keywords/cutefishos
-sys-libs/libcutefish **
-sys-libs/fishui **
-sys-libs/cutefish-core **
-cutefish-base/* **
-dev-util/ninja **
-EOF
+          sys-libs/libcutefish **
+          sys-libs/fishui **
+          sys-libs/cutefish-core **
+          cutefish-base/* **
+          dev-util/ninja **
+          EOF
 
       - name: Mask fragile packages
         run: |
