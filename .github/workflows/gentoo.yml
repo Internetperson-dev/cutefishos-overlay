@@ -59,6 +59,9 @@ jobs:
           mkdir -p /etc/portage/package.mask
           echo "cutefish-base/cutefish-kwin-plugins" \
             > /etc/portage/package.mask/cutefishos
+          mkdir -p /etc/portage/package.use
+          echo 'FEATURES="-ipc-sandbox -network-sandbox"' >> /etc/portage/make.conf
+          echo "media-libs/tiff -webp" >> /etc/portage/package.use/ci
 
       - name: Build Cutefish core
         run: |
