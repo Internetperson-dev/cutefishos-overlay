@@ -1,4 +1,4 @@
-name: Gentoo CI (no docker, mirrors + cache)
+name: Gentoo overlay build test (binary-first)
 
 on:
   push:
@@ -7,155 +7,87 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
-    env:
-      GENTOO_ROOT: /gentoo
-      STAGE3_MIRROR: https://distfiles.gentoo.org/releases/amd64/autobuilds
-      BINHOST: https://distfiles.gentoo.org/packages/
+    container:
+      image: gentoo/stage3:latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install host dependencies
+      - name: Sync Portage
         run: |
-          sudo apt update
-          sudo apt install -y \
-            git wget curl tar xz-utils bzip2 ca-certificates
+          emerge-webrsync
 
-      # ------------------------------
-      # Cache stage3 + binpkgs
-      # ------------------------------
-      - name: Restore Gentoo cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            /var/cache/gentoo
-            /gentoo/var/cache/binpkgs
-          key: gentoo-cache-${{ runner.os }}
-
-      # ------------------------------
-      # Download latest stage3 (mirror-safe)
-      # ------------------------------
-      - name: Download latest Gentoo stage3
+      - name: Configure Portage for CI (binary-first)
         run: |
           set -e
 
-          mkdir -p /var/cache/gentoo
-          cd /var/cache/gentoo
+          mkdir -p /etc/portage/package.use/ci
+          mkdir -p /etc/portage/package.accept_keywords
+          mkdir -p /etc/portage/package.mask
+          mkdir -p /etc/portage/binrepos.conf
 
-          echo "Fetching latest stage3 filename…"
-          STAGE3=$(curl -fsSL \
-            ${STAGE3_MIRROR}/current-stage3-amd64/latest-stage3-amd64.txt \
-            | awk 'NR==1 {print $1}')
+          # GitHub Actions kernel limitations
+          echo 'FEATURES="-ipc-sandbox -network-sandbox -pid-sandbox"' >> /etc/portage/make.conf
 
-          echo "Latest stage3 is: $STAGE3"
+          # Enable ccache + binpkgs
+          echo 'FEATURES="${FEATURES} ccache getbinpkg binpkg-request-signature"' >> /etc/portage/make.conf
+          echo 'EMERGE_DEFAULT_OPTS="--usepkg --getbinpkg --binpkg-respect-use=y --jobs=2 --load-average=2"' >> /etc/portage/make.conf
 
-          if [ ! -f "${STAGE3##*/}" ]; then
-            wget -O stage3.tar.xz \
-              ${STAGE3_MIRROR}/$STAGE3
-          else
-            echo "Stage3 already cached"
-          fi
-
-          sudo mkdir -p $GENTOO_ROOT
-          sudo tar xpf stage3.tar.xz -C $GENTOO_ROOT
-
-      # ------------------------------
-      # Mount chroot filesystems
-      # ------------------------------
-      - name: Mount Gentoo filesystems
-        run: |
-          sudo mount --types proc /proc $GENTOO_ROOT/proc
-          sudo mount --rbind /sys $GENTOO_ROOT/sys
-          sudo mount --make-rslave $GENTOO_ROOT/sys
-          sudo mount --rbind /dev $GENTOO_ROOT/dev
-          sudo mount --make-rslave $GENTOO_ROOT/dev
-
-      # ------------------------------
-      # Configure Portage (binary-only)
-      # ------------------------------
-      - name: Configure Portage
-        run: |
-          sudo tee $GENTOO_ROOT/etc/portage/make.conf <<'EOF'
-          ACCEPT_LICENSE="*"
-          FEATURES="getbinpkg binpkg-request-signature -sandbox -pid-sandbox -ipc-sandbox"
-          PORTAGE_BINHOST="https://distfiles.gentoo.org/packages/"
-          EMERGE_DEFAULT_OPTS="--usepkgonly --getbinpkg"
-          MAKEOPTS="-j2"
+          # Official Gentoo binary repo
+          cat <<EOF > /etc/portage/binrepos.conf/gentoo.conf
+          [gentoo]
+          priority = 9999
+          sync-uri = https://distfiles.gentoo.org/packages
           EOF
 
-      # ------------------------------
-      # Sync Portage
-      # ------------------------------
-      - name: Sync Portage tree
-        run: |
-          sudo chroot $GENTOO_ROOT emerge-webrsync
+          echo 'PORTAGE_BINHOST="https://distfiles.gentoo.org/packages"' >> /etc/portage/make.conf
+          echo 'ACCEPT_LICENSE="*"' >> /etc/portage/make.conf
 
-      # ------------------------------
-      # Install base tooling (binary only)
-      # ------------------------------
-      - name: Install base tools
+          # Break known circular deps
+          echo "media-libs/tiff -webp" > /etc/portage/package.use/ci/tiff
+          echo "dev-python/pillow -truetype" > /etc/portage/package.use/ci/pillow
+
+      - name: Install base tooling (binary-only)
         run: |
-          sudo chroot $GENTOO_ROOT emerge -K \
+          emerge -v --usepkgonly \
             app-eselect/eselect-repository \
             app-portage/gentoolkit \
             dev-vcs/git
 
-      # ------------------------------
-      # HARD BLOCK SOURCE LLVM
-      # ------------------------------
-      - name: Mask source LLVM (safety)
-        run: |
-          sudo mkdir -p $GENTOO_ROOT/etc/portage/package.mask/ci
-          sudo tee $GENTOO_ROOT/etc/portage/package.mask/ci/llvm <<'EOF'
-          llvm-core/llvm
-          llvm-core/clang
-          llvm-core/lld
-          EOF
-
-      - name: Install LLVM (binary only)
-        run: |
-          sudo chroot $GENTOO_ROOT emerge -K \
-            llvm-core/llvm \
-            llvm-core/clang \
-            llvm-core/lld
-
-      # ------------------------------
-      # Add Cutefish overlay
-      # ------------------------------
       - name: Add Cutefish overlay
         run: |
-          sudo chroot $GENTOO_ROOT eselect repository add cutefishos git \
+          eselect repository add cutefishos git \
             https://github.com/Internetperson-dev/cutefishos-overlay
-          sudo chroot $GENTOO_ROOT emaint sync -r cutefishos
+          emaint sync -r cutefishos
 
       - name: Select Gentoo profile
         run: |
-          sudo chroot $GENTOO_ROOT eselect profile set 3
+          eselect profile set 3
 
-      - name: Accept Cutefish keywords
+      - name: Accept keywords
         run: |
-          sudo mkdir -p $GENTOO_ROOT/etc/portage/package.accept_keywords
-          sudo tee $GENTOO_ROOT/etc/portage/package.accept_keywords/cutefishos <<'EOF'
-          sys-libs/libcutefish **
-          sys-libs/fishui **
-          sys-libs/cutefish-core **
-          cutefish-base/* **
-          EOF
+          cat <<EOF > /etc/portage/package.accept_keywords/cutefishos
+sys-libs/libcutefish **
+sys-libs/fishui **
+sys-libs/cutefish-core **
+cutefish-base/* **
+dev-util/ninja **
+EOF
 
       - name: Mask fragile packages
         run: |
-          sudo mkdir -p $GENTOO_ROOT/etc/portage/package.mask
-          echo "cutefish-base/cutefish-kwin-plugins" | \
-            sudo tee $GENTOO_ROOT/etc/portage/package.mask/cutefishos
+          echo "cutefish-base/cutefish-kwin-plugins" > /etc/portage/package.mask/cutefishos
 
-      # ------------------------------
-      # Build Cutefish
-      # ------------------------------
-      - name: Build Cutefish core
+      - name: Install build tools (prefer binaries)
         run: |
-          sudo chroot $GENTOO_ROOT emerge -v \
+          emerge -v dev-build/ninja dev-build/cmake
+
+      - name: Build Cutefish core (binary-first, fail fast)
+        run: |
+          emerge -v \
+            --usepkg \
+            --getbinpkg \
+            --binpkg-respect-use=y \
+            --jobs=1 \
+            --load-average=1 \
             sys-libs/libcutefish \
             sys-libs/fishui \
             sys-libs/cutefish-core
