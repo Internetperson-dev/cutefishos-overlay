@@ -1,4 +1,4 @@
-name: Gentoo overlay build test
+name: Gentoo CI (no docker, binary LLVM only)
 
 on:
   push:
@@ -8,52 +8,96 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    container:
-      image: ghcr.io/internetperson-dev/gentoo-llvm-ci:latest
-
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install host dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            git wget tar xz-utils bzip2
+
+      - name: Download Gentoo stage3
+        run: |
+          wget https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64/stage3-amd64.tar.xz
+          sudo mkdir -p /gentoo
+          sudo tar xpf stage3-amd64.tar.xz -C /gentoo
+
+      - name: Mount chroot filesystems
+        run: |
+          sudo mount --types proc /proc /gentoo/proc
+          sudo mount --rbind /sys /gentoo/sys
+          sudo mount --make-rslave /gentoo/sys
+          sudo mount --rbind /dev /gentoo/dev
+          sudo mount --make-rslave /gentoo/dev
+
+      - name: Configure Portage (binary-only)
+        run: |
+          sudo tee /gentoo/etc/portage/make.conf <<'EOF'
+          ACCEPT_LICENSE="*"
+          FEATURES="getbinpkg binpkg-request-signature -sandbox -pid-sandbox -ipc-sandbox"
+          PORTAGE_BINHOST="https://distfiles.gentoo.org/packages/"
+          EMERGE_DEFAULT_OPTS="--usepkgonly --getbinpkg"
+          MAKEOPTS="-j2"
+          EOF
+
       - name: Sync Portage
         run: |
-          emaint sync -a
+          sudo chroot /gentoo emerge-webrsync
 
-      - name: Configure Portage for CI
+      - name: Install base tools (binary only)
         run: |
-          mkdir -p /etc/portage/package.use/ci
-          mkdir -p /etc/portage/package.accept_keywords
-          mkdir -p /etc/portage/package.mask
+          sudo chroot /gentoo emerge -K \
+            app-eselect/eselect-repository \
+            app-portage/gentoolkit \
+            dev-vcs/git
 
-          echo 'FEATURES="${FEATURES}"' >> /etc/portage/make.conf
-          echo 'ACCEPT_LICENSE="*"' >> /etc/portage/make.conf
+      - name: Hard-mask source LLVM (safety net)
+        run: |
+          sudo mkdir -p /gentoo/etc/portage/package.mask/ci
+          sudo tee /gentoo/etc/portage/package.mask/ci/llvm <<'EOF'
+          llvm-core/llvm
+          llvm-core/clang
+          llvm-core/lld
+          EOF
+
+      - name: Install LLVM (binary packages only)
+        run: |
+          sudo chroot /gentoo emerge -K \
+            llvm-core/llvm \
+            llvm-core/clang \
+            llvm-core/lld
 
       - name: Add Cutefish overlay
         run: |
-          eselect repository add cutefishos git \
+          sudo chroot /gentoo eselect repository add cutefishos git \
             https://github.com/Internetperson-dev/cutefishos-overlay
-          emaint sync -r cutefishos
+          sudo chroot /gentoo emaint sync -r cutefishos
 
       - name: Select Gentoo profile
         run: |
-          eselect profile set 3
+          sudo chroot /gentoo eselect profile set 3
 
-      - name: Accept keywords
+      - name: Accept Cutefish keywords
         run: |
-          cat <<EOF > /etc/portage/package.accept_keywords/cutefishos
+          sudo mkdir -p /gentoo/etc/portage/package.accept_keywords
+          sudo tee /gentoo/etc/portage/package.accept_keywords/cutefishos <<'EOF'
           sys-libs/libcutefish **
           sys-libs/fishui **
           sys-libs/cutefish-core **
           cutefish-base/* **
-          dev-util/ninja **
           EOF
 
       - name: Mask fragile packages
         run: |
-          echo "cutefish-base/cutefish-kwin-plugins" \
-            > /etc/portage/package.mask/cutefishos
+          sudo mkdir -p /gentoo/etc/portage/package.mask
+          echo "cutefish-base/cutefish-kwin-plugins" | \
+            sudo tee /gentoo/etc/portage/package.mask/cutefishos
 
-      - name: Build Cutefish core (NO LLVM BUILDS)
+      - name: Build Cutefish core
         run: |
-          emerge -v --jobs=1 --load-average=1 \
+          sudo chroot /gentoo emerge -v \
             sys-libs/libcutefish \
             sys-libs/fishui \
             sys-libs/cutefish-core
-
