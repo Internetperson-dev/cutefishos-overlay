@@ -12,17 +12,14 @@ jobs:
       - name: Install basic deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget xz-utils sed
+          sudo apt-get install -y wget xz-utils
 
-      - name: Download Gentoo stage3 (old reliable method)
+      - name: Download and extract Gentoo stage3
         run: |
-          STAGE3_BASE="https://distfiles.gentoo.org/releases/amd64/autobuilds"
-          wget -O stage3-latest.txt \
-            ${STAGE3_BASE}/current-stage3-amd64-openrc/stage3-amd64-openrc-latest.txt
-
-          STAGE3_TARBALL=$(grep -v '^#' stage3-latest.txt | awk '{print $1}')
+          STAGE3_BASE="https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64-openrc"
+          wget -O latest.txt "${STAGE3_BASE}/latest-stage3-amd64-openrc.txt"
+          STAGE3_TARBALL=$(grep -v '^#' latest.txt | awk '{print $1}')
           wget -O stage3.tar.xz "${STAGE3_BASE}/${STAGE3_TARBALL}"
-
           sudo mkdir -p /gentoo
           sudo tar xpf stage3.tar.xz -C /gentoo
 
@@ -39,22 +36,21 @@ jobs:
           COMMON_FLAGS="-O2 -pipe"
           CFLAGS="${COMMON_FLAGS}"
           CXXFLAGS="${COMMON_FLAGS}"
-
           FEATURES="getbinpkg binpkg-request-signature -sandbox -ipc-sandbox -pid-sandbox -network-sandbox"
           EMERGE_DEFAULT_OPTS="--usepkg --with-bdeps=y --jobs=2 --load-average=2"
-
           PORTAGE_BINHOST="https://distfiles.gentoo.org/packages/"
           ACCEPT_LICENSE="*"
           EOF
 
-      - name: Block live ebuilds (critical)
+      - name: Block live ebuilds
         run: |
           sudo mkdir -p /gentoo/etc/portage/package.mask
           sudo tee /gentoo/etc/portage/package.mask/no-live <<'EOF'
+          */*::gentoo
           */*-9999
           EOF
 
-      - name: Sync Portage
+      - name: Chroot and sync Portage
         run: |
           sudo chroot /gentoo /bin/bash <<'EOF'
           source /etc/profile
@@ -71,7 +67,7 @@ jobs:
           emaint sync -r cutefishos
           EOF
 
-      - name: Accept keywords (no live)
+      - name: Accept keywords (stable-only, no live)
         run: |
           sudo tee /gentoo/etc/portage/package.accept_keywords/cutefishos <<'EOF'
           sys-libs/libcutefish ~amd64
@@ -80,7 +76,7 @@ jobs:
           cutefish-base/* ~amd64
           EOF
 
-      - name: Build (binary-first, source fallback)
+      - name: Prefer binaries but allow source fallback
         run: |
           sudo chroot /gentoo /bin/bash <<'EOF'
           source /etc/profile
