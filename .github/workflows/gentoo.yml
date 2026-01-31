@@ -12,12 +12,14 @@ jobs:
       - name: Install basic dependencies
         run: sudo apt-get update && sudo apt-get install -y wget xz-utils sudo
 
-      - name: Download and extract Gentoo stage3
+      - name: Download latest Gentoo stage3
         run: |
-          wget -O stage3.tar.xz https://mirrors.osuosl.org/gentoo/releases/amd64/autobuilds/current-stage3-amd64-openrc/stage3-amd64-openrc-20260125T170113Z.tar.xz
+          STAGE3_INDEX=https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64-openrc/latest-stage3-amd64-openrc.txt
+          TARFILE=$(wget -qO- $STAGE3_INDEX | grep stage3 | grep openrc | awk '{print $1}')
+          wget -O stage3.tar.xz https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64-openrc/$TARFILE
           sudo mkdir -p /gentoo
           sudo tar xpf stage3.tar.xz -C /gentoo
-
+          
       - name: Prepare chroot mounts
         run: |
           sudo mount --bind /dev /gentoo/dev
