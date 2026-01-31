@@ -14,9 +14,9 @@ jobs:
 
       - name: Download latest Gentoo stage3
         run: |
-          STAGE3_INDEX=https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64-openrc/latest-stage3-amd64-openrc.txt
+          STAGE3_INDEX=https://mirrors.rit.edu/gentoo/releases/amd64/autobuilds/current-stage3-amd64-openrc/
           TARFILE=$(wget -qO- $STAGE3_INDEX | grep stage3 | grep openrc | awk '{print $1}')
-          wget -O stage3.tar.xz https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64-openrc/$TARFILE
+          wget -O stage3.tar.xz https://mirrors.rit.edu/gentoo/releases/amd64/autobuilds/current-stage3-amd64-openrc//$TARFILE
           sudo mkdir -p /gentoo
           sudo tar xpf stage3.tar.xz -C /gentoo
           
