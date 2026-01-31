@@ -7,81 +7,75 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    container:
+      image: gentoo/stage3:latest
 
     steps:
-      - name: Install basic deps
+      - name: Sync Portage
         run: |
-          sudo apt-get update
-          sudo apt-get install -y wget xz-utils
-
-      - name: Download and extract Gentoo stage3
-        run: |
-          STAGE3_BASE="https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64-openrc"
-          wget -O latest.txt "${STAGE3_BASE}/latest-stage3-amd64-openrc.txt"
-          STAGE3_TARBALL=$(grep -v '^#' latest.txt | awk '{print $1}')
-          wget -O stage3.tar.xz "${STAGE3_BASE}/${STAGE3_TARBALL}"
-          sudo mkdir -p /gentoo
-          sudo tar xpf stage3.tar.xz -C /gentoo
-
-      - name: Prepare chroot
-        run: |
-          sudo mount --bind /dev /gentoo/dev
-          sudo mount --bind /sys /gentoo/sys
-          sudo mount --bind /proc /gentoo/proc
-          sudo mount --bind /run /gentoo/run
-
-      - name: Configure Portage (binary-first)
-        run: |
-          sudo tee /gentoo/etc/portage/make.conf <<'EOF'
-          COMMON_FLAGS="-O2 -pipe"
-          CFLAGS="${COMMON_FLAGS}"
-          CXXFLAGS="${COMMON_FLAGS}"
-          FEATURES="getbinpkg binpkg-request-signature -sandbox -ipc-sandbox -pid-sandbox -network-sandbox"
-          EMERGE_DEFAULT_OPTS="--usepkg --with-bdeps=y --jobs=2 --load-average=2"
-          PORTAGE_BINHOST="https://distfiles.gentoo.org/packages/"
-          ACCEPT_LICENSE="*"
-          EOF
-
-      - name: Block live ebuilds
-        run: |
-          sudo mkdir -p /gentoo/etc/portage/package.mask
-          sudo tee /gentoo/etc/portage/package.mask/no-live <<'EOF'
-          */*::gentoo
-          */*-9999
-          EOF
-
-      - name: Chroot and sync Portage
-        run: |
-          sudo chroot /gentoo /bin/bash <<'EOF'
-          source /etc/profile
           emerge-webrsync
-          eselect profile set default/linux/amd64/17.0
-          EOF
+
+      - name: Configure Portage for CI (binary-first)
+        run: |
+          mkdir -p /etc/portage/package.use/ci
+          mkdir -p /etc/portage/package.accept_keywords
+          mkdir -p /etc/portage/package.mask
+
+          # GitHub Actions kernel limitations
+          echo 'FEATURES="-ipc-sandbox -network-sandbox -pid-sandbox ccache getbinpkg binpkg-request-signature"' >> /etc/portage/make.conf
+          echo 'EMERGE_DEFAULT_OPTS="--usepkg --with-bdeps=y --jobs=2 --load-average=2"' >> /etc/portage/make.conf
+
+          # Use official Gentoo binary host
+          echo 'PORTAGE_BINHOST="https://distfiles.gentoo.org/packages/"' >> /etc/portage/make.conf
+          echo 'ACCEPT_LICENSE="*"' >> /etc/portage/make.conf
+
+          # Break libwebp <-> tiff circular dependency
+          echo "media-libs/tiff -webp" > /etc/portage/package.use/ci/tiff
+          # Break pillow/truetype circular dependency
+          echo "dev-python/pillow -truetype" > /etc/portage/package.use/ci/pillow
+
+          # Block live ebuilds (prevent 9999 builds)
+          mkdir -p /etc/portage/package.mask/no-live
+          echo "*/*-9999" > /etc/portage/package.mask/no-live
+          echo "*/*::gentoo" >> /etc/portage/package.mask/no-live
+
+      - name: Install base tooling
+        run: |
+          emerge --oneshot app-eselect/eselect-repository \
+                                app-portage/gentoolkit \
+                                dev-vcs/git
 
       - name: Add Cutefish overlay
         run: |
-          sudo chroot /gentoo /bin/bash <<'EOF'
-          source /etc/profile
-          emerge --oneshot app-eselect/eselect-repository dev-vcs/git
           eselect repository add cutefishos git https://github.com/Internetperson-dev/cutefishos-overlay
           emaint sync -r cutefishos
-          EOF
 
-      - name: Accept keywords (stable-only, no live)
+      - name: Select Gentoo profile
         run: |
-          sudo tee /gentoo/etc/portage/package.accept_keywords/cutefishos <<'EOF'
+          eselect profile set 3
+
+      - name: Accept keywords (stable/binary-first)
+        run: |
+          mkdir -p /etc/portage/package.accept_keywords
+          cat <<EOF > /etc/portage/package.accept_keywords/cutefishos
           sys-libs/libcutefish ~amd64
           sys-libs/fishui ~amd64
           sys-libs/cutefish-core ~amd64
           cutefish-base/* ~amd64
+          dev-util/ninja ~amd64
           EOF
 
-      - name: Prefer binaries but allow source fallback
+      - name: Mask fragile packages
         run: |
-          sudo chroot /gentoo /bin/bash <<'EOF'
-          source /etc/profile
-          emerge -v \
+          echo "cutefish-base/cutefish-kwin-plugins" > /etc/portage/package.mask/cutefishos
+
+      - name: Install build tools (prefer binaries)
+        run: |
+          emerge -v dev-build/ninja dev-build/cmake
+
+      - name: Build Cutefish core (binary-first, fallback to source)
+        run: |
+          emerge -v --jobs=1 --load-average=1 \
             sys-libs/libcutefish \
             sys-libs/fishui \
             sys-libs/cutefish-core
-          EOF
