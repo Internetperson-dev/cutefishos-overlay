@@ -14,7 +14,18 @@ jobs:
       - name: Sync Portage
         run: |
           emerge-webrsync
-          
+
+      - name: Configure Portage for CI
+        run: |
+          mkdir -p /etc/portage/package.use
+          mkdir -p /etc/portage/package.accept_keywords
+
+          # GitHub Actions kernel limitations
+          echo 'FEATURES="-ipc-sandbox -network-sandbox -pid-sandbox"' >> /etc/portage/make.conf
+
+          # Break libwebp <-> tiff circular dependency
+          echo "media-libs/tiff -webp" >> /etc/portage/package.use/ci
+
       - name: Install base tooling
         run: |
           emerge --oneshot \
@@ -30,12 +41,10 @@ jobs:
 
       - name: Select Gentoo profile
         run: |
-          eselect profile list
           eselect profile set 3
 
       - name: Accept keywords
         run: |
-          mkdir -p /etc/portage/package.accept_keywords
           cat <<EOF > /etc/portage/package.accept_keywords/cutefishos
           sys-libs/libcutefish **
           sys-libs/fishui **
@@ -43,25 +52,16 @@ jobs:
           cutefish-base/* **
           EOF
 
-
-
-      - name: Install ninja build tool
+      - name: Install build tools
         run: |
-          # accept any unstable keyword if needed
-          mkdir -p /etc/portage/package.accept_keywords
-          echo "dev-util/ninja **" > /etc/portage/package.accept_keywords/ninja
-          emerge -v dev-build/ninja
-          emerge -v dev-build/cmake dev-qt/qtbase dev-qt/qtdeclarative kde-frameworks/kconfig
+          echo "dev-build/ninja **" > /etc/portage/package.accept_keywords/ninja
+          emerge -v dev-build/ninja dev-build/cmake
 
-          
       - name: Mask fragile packages
         run: |
           mkdir -p /etc/portage/package.mask
           echo "cutefish-base/cutefish-kwin-plugins" \
             > /etc/portage/package.mask/cutefishos
-          mkdir -p /etc/portage/package.use
-          echo 'FEATURES="-ipc-sandbox -network-sandbox"' >> /etc/portage/make.conf
-          echo "media-libs/tiff -webp" >> /etc/portage/package.use/ci
 
       - name: Build Cutefish core
         run: |
