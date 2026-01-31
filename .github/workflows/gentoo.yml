@@ -20,21 +20,21 @@ jobs:
           mkdir -p /etc/portage/package.use/ci
           mkdir -p /etc/portage/package.accept_keywords
           mkdir -p /etc/portage/package.mask
-
+      
           # GitHub Actions kernel limitations
           echo 'FEATURES="-ipc-sandbox -network-sandbox -pid-sandbox"' >> /etc/portage/make.conf
-
+      
           # Break libwebp <-> tiff circular dependency
-          echo "media-libs/tiff -webp" >> /etc/portage/package.use/ci
-
+          echo "media-libs/tiff -webp" > /etc/portage/package.use/ci/tiff
+      
           # Break pillow/truetype circular dependency
-          echo "dev-python/pillow -truetype" >> /etc/portage/package.use/ci
-
+          echo "dev-python/pillow -truetype" > /etc/portage/package.use/ci/pillow
+      
           # Enable ccache and binary package downloads for faster CI
-          echo 'FEATURES="${FEATURES} ccache'" >> /etc/portage/make.conf
+          echo 'FEATURES="${FEATURES} ccache"' >> /etc/portage/make.conf
           echo 'PORTAGE_BINHOST="http://distfiles.gentoo.org/packages/"' >> /etc/portage/make.conf
           echo 'ACCEPT_LICENSE="*"' >> /etc/portage/make.conf
-
+    
       - name: Install base tooling
         run: |
           emerge --oneshot \
