@@ -1,4 +1,4 @@
-name: Gentoo CI (no docker, binary LLVM only)
+name: Gentoo CI (no docker, mirrors + cache)
 
 on:
   push:
@@ -8,6 +8,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    env:
+      GENTOO_ROOT: /gentoo
+      STAGE3_MIRROR: https://distfiles.gentoo.org/releases/amd64/autobuilds
+      BINHOST: https://distfiles.gentoo.org/packages/
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -16,25 +21,63 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y \
-            git wget tar xz-utils bzip2
+            git wget curl tar xz-utils bzip2 ca-certificates
 
-      - name: Download Gentoo stage3
-        run: |
-          wget https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64/stage3-amd64.tar.xz
-          sudo mkdir -p /gentoo
-          sudo tar xpf stage3-amd64.tar.xz -C /gentoo
+      # ------------------------------
+      # Cache stage3 + binpkgs
+      # ------------------------------
+      - name: Restore Gentoo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /var/cache/gentoo
+            /gentoo/var/cache/binpkgs
+          key: gentoo-cache-${{ runner.os }}
 
-      - name: Mount chroot filesystems
+      # ------------------------------
+      # Download latest stage3 (mirror-safe)
+      # ------------------------------
+      - name: Download latest Gentoo stage3
         run: |
-          sudo mount --types proc /proc /gentoo/proc
-          sudo mount --rbind /sys /gentoo/sys
-          sudo mount --make-rslave /gentoo/sys
-          sudo mount --rbind /dev /gentoo/dev
-          sudo mount --make-rslave /gentoo/dev
+          set -e
 
-      - name: Configure Portage (binary-only)
+          mkdir -p /var/cache/gentoo
+          cd /var/cache/gentoo
+
+          echo "Fetching latest stage3 filename…"
+          STAGE3=$(curl -fsSL \
+            ${STAGE3_MIRROR}/current-stage3-amd64/latest-stage3-amd64.txt \
+            | awk 'NR==1 {print $1}')
+
+          echo "Latest stage3 is: $STAGE3"
+
+          if [ ! -f "${STAGE3##*/}" ]; then
+            wget -O stage3.tar.xz \
+              ${STAGE3_MIRROR}/$STAGE3
+          else
+            echo "Stage3 already cached"
+          fi
+
+          sudo mkdir -p $GENTOO_ROOT
+          sudo tar xpf stage3.tar.xz -C $GENTOO_ROOT
+
+      # ------------------------------
+      # Mount chroot filesystems
+      # ------------------------------
+      - name: Mount Gentoo filesystems
         run: |
-          sudo tee /gentoo/etc/portage/make.conf <<'EOF'
+          sudo mount --types proc /proc $GENTOO_ROOT/proc
+          sudo mount --rbind /sys $GENTOO_ROOT/sys
+          sudo mount --make-rslave $GENTOO_ROOT/sys
+          sudo mount --rbind /dev $GENTOO_ROOT/dev
+          sudo mount --make-rslave $GENTOO_ROOT/dev
+
+      # ------------------------------
+      # Configure Portage (binary-only)
+      # ------------------------------
+      - name: Configure Portage
+        run: |
+          sudo tee $GENTOO_ROOT/etc/portage/make.conf <<'EOF'
           ACCEPT_LICENSE="*"
           FEATURES="getbinpkg binpkg-request-signature -sandbox -pid-sandbox -ipc-sandbox"
           PORTAGE_BINHOST="https://distfiles.gentoo.org/packages/"
@@ -42,47 +85,59 @@ jobs:
           MAKEOPTS="-j2"
           EOF
 
-      - name: Sync Portage
+      # ------------------------------
+      # Sync Portage
+      # ------------------------------
+      - name: Sync Portage tree
         run: |
-          sudo chroot /gentoo emerge-webrsync
+          sudo chroot $GENTOO_ROOT emerge-webrsync
 
-      - name: Install base tools (binary only)
+      # ------------------------------
+      # Install base tooling (binary only)
+      # ------------------------------
+      - name: Install base tools
         run: |
-          sudo chroot /gentoo emerge -K \
+          sudo chroot $GENTOO_ROOT emerge -K \
             app-eselect/eselect-repository \
             app-portage/gentoolkit \
             dev-vcs/git
 
-      - name: Hard-mask source LLVM (safety net)
+      # ------------------------------
+      # HARD BLOCK SOURCE LLVM
+      # ------------------------------
+      - name: Mask source LLVM (safety)
         run: |
-          sudo mkdir -p /gentoo/etc/portage/package.mask/ci
-          sudo tee /gentoo/etc/portage/package.mask/ci/llvm <<'EOF'
+          sudo mkdir -p $GENTOO_ROOT/etc/portage/package.mask/ci
+          sudo tee $GENTOO_ROOT/etc/portage/package.mask/ci/llvm <<'EOF'
           llvm-core/llvm
           llvm-core/clang
           llvm-core/lld
           EOF
 
-      - name: Install LLVM (binary packages only)
+      - name: Install LLVM (binary only)
         run: |
-          sudo chroot /gentoo emerge -K \
+          sudo chroot $GENTOO_ROOT emerge -K \
             llvm-core/llvm \
             llvm-core/clang \
             llvm-core/lld
 
+      # ------------------------------
+      # Add Cutefish overlay
+      # ------------------------------
       - name: Add Cutefish overlay
         run: |
-          sudo chroot /gentoo eselect repository add cutefishos git \
+          sudo chroot $GENTOO_ROOT eselect repository add cutefishos git \
             https://github.com/Internetperson-dev/cutefishos-overlay
-          sudo chroot /gentoo emaint sync -r cutefishos
+          sudo chroot $GENTOO_ROOT emaint sync -r cutefishos
 
       - name: Select Gentoo profile
         run: |
-          sudo chroot /gentoo eselect profile set 3
+          sudo chroot $GENTOO_ROOT eselect profile set 3
 
       - name: Accept Cutefish keywords
         run: |
-          sudo mkdir -p /gentoo/etc/portage/package.accept_keywords
-          sudo tee /gentoo/etc/portage/package.accept_keywords/cutefishos <<'EOF'
+          sudo mkdir -p $GENTOO_ROOT/etc/portage/package.accept_keywords
+          sudo tee $GENTOO_ROOT/etc/portage/package.accept_keywords/cutefishos <<'EOF'
           sys-libs/libcutefish **
           sys-libs/fishui **
           sys-libs/cutefish-core **
@@ -91,13 +146,16 @@ jobs:
 
       - name: Mask fragile packages
         run: |
-          sudo mkdir -p /gentoo/etc/portage/package.mask
+          sudo mkdir -p $GENTOO_ROOT/etc/portage/package.mask
           echo "cutefish-base/cutefish-kwin-plugins" | \
-            sudo tee /gentoo/etc/portage/package.mask/cutefishos
+            sudo tee $GENTOO_ROOT/etc/portage/package.mask/cutefishos
 
+      # ------------------------------
+      # Build Cutefish
+      # ------------------------------
       - name: Build Cutefish core
         run: |
-          sudo chroot /gentoo emerge -v \
+          sudo chroot $GENTOO_ROOT emerge -v \
             sys-libs/libcutefish \
             sys-libs/fishui \
             sys-libs/cutefish-core
