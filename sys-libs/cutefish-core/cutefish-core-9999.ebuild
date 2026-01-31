@@ -44,7 +44,7 @@ DEPEND="
 	x11-libs/libXcursor
 "
 BDEPEND="${DEPEND}
-	dev-util/ninja
+	dev-build/ninja
 "
 
 src_configure(){
