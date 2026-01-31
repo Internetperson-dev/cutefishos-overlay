@@ -30,7 +30,7 @@ DEPEND="
 	dev-qt/qtdbus
 "
 BDEPEND="${DEPEND}
-	dev-util/ninja
+	dev-build/ninja
 "
 
 src_configure(){

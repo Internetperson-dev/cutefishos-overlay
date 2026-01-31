@@ -43,7 +43,7 @@ DEPEND="
 	kde-frameworks/modemmanager-qt
 "
 BDEPEND="${DEPEND}
-	dev-util/ninja
+	dev-build/ninja
 "
 
 src_configure(){

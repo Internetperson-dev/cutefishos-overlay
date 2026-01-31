@@ -32,7 +32,7 @@ DEPEND="
 	dev-qt/qtquickcontrols2
 "
 BDEPEND="${DEPEND}
-	dev-util/ninja
+	dev-build/ninja
 "
 
 src_configure(){

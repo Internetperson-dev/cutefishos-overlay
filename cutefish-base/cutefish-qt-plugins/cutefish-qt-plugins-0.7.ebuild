@@ -34,7 +34,7 @@ DEPEND="
 	kde-frameworks/kwindowsystem
 "
 BDEPEND="${DEPEND}
-	dev-util/ninja
+	dev-build/ninja
 "
 
 src_configure(){

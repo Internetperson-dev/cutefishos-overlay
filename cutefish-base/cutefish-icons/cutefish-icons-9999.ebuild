@@ -24,7 +24,7 @@ IUSE=""
 RDEPEND=""
 DEPEND=""
 BDEPEND="${DEPEND}
-	dev-util/ninja
+	dev-build/ninja
 "
 
 src_configure(){

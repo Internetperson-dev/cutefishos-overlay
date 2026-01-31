@@ -35,7 +35,7 @@ DEPEND="
 	kde-frameworks/solid
 "
 BDEPEND="${DEPEND}
-	dev-util/ninja
+	dev-build/ninja
 "
 
 src_configure(){
