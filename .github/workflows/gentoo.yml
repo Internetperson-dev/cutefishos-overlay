@@ -7,40 +7,23 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     container:
-      image: gentoo/stage3:latest
+      image: ghcr.io/internetperson-dev/gentoo-llvm-ci:latest
 
     steps:
       - name: Sync Portage
         run: |
-          emerge-webrsync
+          emaint sync -a
 
       - name: Configure Portage for CI
         run: |
           mkdir -p /etc/portage/package.use/ci
           mkdir -p /etc/portage/package.accept_keywords
           mkdir -p /etc/portage/package.mask
-      
-          # GitHub Actions kernel limitations
-          echo 'FEATURES="-ipc-sandbox -network-sandbox -pid-sandbox"' >> /etc/portage/make.conf
-      
-          # Break libwebp <-> tiff circular dependency
-          echo "media-libs/tiff -webp" > /etc/portage/package.use/ci/tiff
-      
-          # Break pillow/truetype circular dependency
-          echo "dev-python/pillow -truetype" > /etc/portage/package.use/ci/pillow
-      
-          # Enable ccache and binary package downloads for faster CI
-          echo 'FEATURES="${FEATURES} ccache"' >> /etc/portage/make.conf
-          echo 'PORTAGE_BINHOST="http://distfiles.gentoo.org/packages/"' >> /etc/portage/make.conf
+
+          echo 'FEATURES="${FEATURES}"' >> /etc/portage/make.conf
           echo 'ACCEPT_LICENSE="*"' >> /etc/portage/make.conf
-    
-      - name: Install base tooling
-        run: |
-          emerge --oneshot \
-            app-eselect/eselect-repository \
-            app-portage/gentoolkit \
-            dev-vcs/git
 
       - name: Add Cutefish overlay
         run: |
@@ -64,15 +47,13 @@ jobs:
 
       - name: Mask fragile packages
         run: |
-          echo "cutefish-base/cutefish-kwin-plugins" > /etc/portage/package.mask/cutefishos
+          echo "cutefish-base/cutefish-kwin-plugins" \
+            > /etc/portage/package.mask/cutefishos
 
-      - name: Install build tools
-        run: |
-          emerge -v dev-build/ninja dev-build/cmake
-
-      - name: Build Cutefish core
+      - name: Build Cutefish core (NO LLVM BUILDS)
         run: |
           emerge -v --jobs=1 --load-average=1 \
             sys-libs/libcutefish \
             sys-libs/fishui \
             sys-libs/cutefish-core
+
