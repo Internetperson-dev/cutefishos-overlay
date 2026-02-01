@@ -12,7 +12,7 @@ jobs:
       - name: Install basic dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget xz-utils sudo
+          sudo apt-get install -y wget xz-utils sudo git app-eselect
 
       - name: Download latest Gentoo stage3 (systemd)
         run: |
@@ -49,7 +49,7 @@ jobs:
           COMMON_FLAGS="-O2 -pipe"
           CFLAGS="${COMMON_FLAGS}"
           CXXFLAGS="${COMMON_FLAGS}"
-
+          
           FEATURES="getbinpkg binpkg-request-signature -sandbox -ipc-sandbox -pid-sandbox -network-sandbox"
           EMERGE_DEFAULT_OPTS="--usepkg --binpkg-respect-use=y --with-bdeps=y --jobs=2 --load-average=2"
           PORTAGE_BINHOST="https://distfiles.gentoo.org/packages/"
@@ -81,9 +81,9 @@ jobs:
       - name: Add Cutefish overlay
         run: |
           sudo chroot /gentoo /bin/bash -c "
-          source /etc/profile &&
-          emerge -avuDN --quiet-build=y --nospinner \
-          sys-libs/libcutefish sys-libs/fishui sys-libs/cutefish-core || true
+            source /etc/profile &&
+            eselect repository add cutefishos git https://github.com/Internetperson-dev/cutefishos-overlay &&
+            emaint sync -r cutefishos
           "
 
       - name: Accept keywords for Cutefish
@@ -103,13 +103,13 @@ jobs:
           sudo tee /gentoo/etc/portage/package.use/cutefish <<'EOF'
           # Qt / KDE requirements
           dev-qt/qtbase icu
-
+          
           # Graphics stack
           media-libs/freetype harfbuzz png
-
+          
           # Audio (REQUIRED_USE safe)
           media-libs/libcanberra alsa pulseaudio udev
-
+          
           # systemd integration
           sys-apps/systemd policykit
           EOF
@@ -117,13 +117,7 @@ jobs:
       - name: Install Cutefish binaries (non-interactive)
         run: |
           sudo chroot /gentoo /bin/bash -c "
-          source /etc/profile &&
-          eselect repository list &&
-          eselect repository add cutefishos git https://github.com/Internetperson-dev/cutefishos-overlay &&
-          emaint sync -r cutefishos
-
-          chroot /gentoo /bin/bash -c "
-          source /etc/profile &&
-          equery list sys-libs/libcutefish
-          "
+            source /etc/profile &&
+            emerge -vDN --quiet-build=y --nospinner \
+            sys-libs/libcutefish sys-libs/fishui sys-libs/cutefish-core
           "
