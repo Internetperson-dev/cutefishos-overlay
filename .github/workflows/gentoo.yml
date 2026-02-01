@@ -18,7 +18,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          META_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64-openrc/latest-stage3-amd64-openrc.txt"
+          META_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64-systemd/latest-stage3-amd64-systemd.txt"
           wget -O latest.txt "${META_URL}"
 
           STAGE3_LINE=$(grep '^stage3-.*\.tar\.xz' latest.txt)
