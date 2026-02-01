@@ -1,4 +1,4 @@
-name: Gentoo overlay build test (binary-first)
+name: Gentoo overlay build test (binary-first, systemd)
 
 on:
   push:
@@ -14,22 +14,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y wget xz-utils sudo
 
-      - name: Download latest Gentoo stage3 (openrc)
+      - name: Download latest Gentoo stage3 (systemd)
         run: |
           set -euo pipefail
-
           META_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64-systemd/latest-stage3-amd64-systemd.txt"
           wget -O latest.txt "${META_URL}"
-
           STAGE3_LINE=$(grep '^stage3-.*\.tar\.xz' latest.txt)
           STAGE3_TARBALL=$(echo "${STAGE3_LINE}" | awk '{print $1}')
           STAGE3_DATE=$(echo "${STAGE3_TARBALL}" | sed -E 's/.*-([0-9TZ]+)\.tar\.xz/\1/')
-
           STAGE3_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/${STAGE3_DATE}/${STAGE3_TARBALL}"
-
           echo "Using stage3 tarball: ${STAGE3_TARBALL}"
-          echo "Download URL: ${STAGE3_URL}"
-
           wget -O stage3.tar.xz "${STAGE3_URL}"
 
           sudo mkdir -p /gentoo
@@ -41,18 +35,13 @@ jobs:
       - name: Prepare chroot mounts
         run: |
           sudo mount --bind /dev  /gentoo/dev
-          sudo mount --bind /sys  /gentoo/sys
           sudo mount --bind /proc /gentoo/proc
+          sudo mount --bind /sys  /gentoo/sys
           sudo mount --bind /run  /gentoo/run
 
       - name: Configure DNS for chroot
         run: |
-          sudo mkdir -p /gentoo/etc
           sudo cp --dereference /etc/resolv.conf /gentoo/etc/resolv.conf
-
-      - name: Ensure Gentoo repo directory exists
-        run: |
-          sudo mkdir -p /gentoo/var/db/repos/gentoo
 
       - name: Configure Portage (binary-first)
         run: |
@@ -60,8 +49,9 @@ jobs:
           COMMON_FLAGS="-O2 -pipe"
           CFLAGS="${COMMON_FLAGS}"
           CXXFLAGS="${COMMON_FLAGS}"
+
           FEATURES="getbinpkg binpkg-request-signature -sandbox -ipc-sandbox -pid-sandbox -network-sandbox"
-          EMERGE_DEFAULT_OPTS="--usepkg --with-bdeps=y --jobs=2 --load-average=2"
+          EMERGE_DEFAULT_OPTS="--usepkg --binpkg-respect-use=y --with-bdeps=y --jobs=2 --load-average=2"
           PORTAGE_BINHOST="https://distfiles.gentoo.org/packages/"
           ACCEPT_LICENSE="*"
           EOF
@@ -73,16 +63,15 @@ jobs:
           */*-9999
           EOF
 
-      - name: Chroot and sync Portage
+      - name: Sync Portage and select systemd profile
         run: |
           sudo chroot /gentoo /bin/bash -c "
             source /etc/profile &&
             emerge-webrsync &&
-            eselect profile list 
-            eselect profile set 2
+            eselect profile set default/linux/amd64/23.0/systemd
           "
 
-      - name: Install base tooling in chroot
+      - name: Install base tooling
         run: |
           sudo chroot /gentoo /bin/bash -c "
             source /etc/profile &&
@@ -97,7 +86,7 @@ jobs:
             emaint sync -r cutefishos
           "
 
-      - name: Accept keywords (stable-only, binary-first)
+      - name: Accept keywords for Cutefish
         run: |
           sudo mkdir -p /gentoo/etc/portage/package.accept_keywords
           sudo tee /gentoo/etc/portage/package.accept_keywords/cutefishos <<'EOF'
@@ -108,9 +97,26 @@ jobs:
           dev-util/ninja ~amd64
           EOF
 
-      - name: Install Cutefish binaries
+      - name: Pin required USE flags (CI-stable)
+        run: |
+          sudo mkdir -p /gentoo/etc/portage/package.use
+          sudo tee /gentoo/etc/portage/package.use/cutefish <<'EOF'
+          # Qt / KDE requirements
+          dev-qt/qtbase icu
+
+          # Graphics stack
+          media-libs/freetype harfbuzz png
+
+          # Audio (REQUIRED_USE safe)
+          media-libs/libcanberra alsa pulseaudio udev
+
+          # systemd integration
+          sys-apps/systemd policykit
+          EOF
+
+      - name: Install Cutefish (binary-first, source fallback)
         run: |
           sudo chroot /gentoo /bin/bash -c "
             source /etc/profile &&
-            emerge -v sys-libs/libcutefish sys-libs/fishui sys-libs/cutefish-core
+            emerge -avuDN sys-libs/libcutefish sys-libs/fishui sys-libs/cutefish-core
           "
