@@ -18,16 +18,20 @@ jobs:
         run: |
           set -euo pipefail
 
-          MIRROR="https://mirrors.rit.edu/gentoo/releases/amd64/autobuilds/current-stage3-amd64-openrc"
-          LATEST_FILE="latest-stage3-amd64-openrc.txt"
+          META_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64-openrc/latest-stage3-amd64-openrc.txt"
 
-          wget -O "${LATEST_FILE}" "${MIRROR}/${LATEST_FILE}"
+          wget -O latest.txt "${META_URL}"
 
-          STAGE3_TARBALL=$(grep '^stage3-.*\.tar\.xz' "${LATEST_FILE}")
+          STAGE3_LINE=$(grep '^stage3-.*\.tar\.xz' latest.txt)
+          STAGE3_TARBALL=$(echo "${STAGE3_LINE}" | awk '{print $1}')
+          STAGE3_DATE=$(echo "${STAGE3_TARBALL}" | sed -E 's/.*-([0-9TZ]+)\.tar\.xz/\1/')
+
+          STAGE3_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/${STAGE3_DATE}/${STAGE3_TARBALL}"
 
           echo "Using stage3 tarball: ${STAGE3_TARBALL}"
+          echo "Download URL: ${STAGE3_URL}"
 
-          wget -O stage3.tar.xz "${MIRROR}/${STAGE3_TARBALL}"
+          wget -O stage3.tar.xz "${STAGE3_URL}"
 
           sudo mkdir -p /gentoo
           sudo tar xpf stage3.tar.xz \
