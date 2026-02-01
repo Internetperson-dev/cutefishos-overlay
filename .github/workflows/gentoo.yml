@@ -81,9 +81,9 @@ jobs:
       - name: Add Cutefish overlay
         run: |
           sudo chroot /gentoo /bin/bash -c "
-            source /etc/profile &&
-            eselect repository add cutefishos git https://github.com/Internetperson-dev/cutefishos-overlay &&
-            emaint sync -r cutefishos
+          source /etc/profile &&
+          emerge -avuDN --quiet-build=y --nospinner \
+          sys-libs/libcutefish sys-libs/fishui sys-libs/cutefish-core || true
           "
 
       - name: Accept keywords for Cutefish
