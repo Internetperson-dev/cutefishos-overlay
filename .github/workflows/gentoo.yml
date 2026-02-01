@@ -10,53 +10,81 @@ jobs:
 
     steps:
       - name: Install basic dependencies
-        run: sudo apt-get update && sudo apt-get install -y wget xz-utils sudo
-
-      - name: Download latest Gentoo stage3
         run: |
-          STAGE3_INDEX=https://mirrors.rit.edu/gentoo/releases/amd64/autobuilds/current-stage3-amd64-openrc/
-          TARFILE=$(wget -qO- $STAGE3_INDEX | grep stage3 | grep openrc | awk '{print $1}')
-          wget -O stage3.tar.xz https://mirrors.rit.edu/gentoo/releases/amd64/autobuilds/current-stage3-amd64-openrc//$TARFILE
+          sudo apt-get update
+          sudo apt-get install -y wget xz-utils sudo
+
+      - name: Download latest Gentoo stage3 (openrc)
+        run: |
+          set -e
+
+          MIRROR="https://mirrors.rit.edu/gentoo/releases/amd64/autobuilds/current-stage3-amd64-openrc"
+          LATEST_FILE="latest-stage3-amd64-openrc.txt"
+
+          wget -O ${LATEST_FILE} ${MIRROR}/${LATEST_FILE}
+
+          STAGE3_TARBALL=$(grep -v '^#' ${LATEST_FILE} | awk '{print $1}')
+
+          echo "Using stage3 tarball: ${STAGE3_TARBALL}"
+
+          wget -O stage3.tar.xz ${MIRROR}/${STAGE3_TARBALL}
+
           sudo mkdir -p /gentoo
-          sudo tar xpf stage3.tar.xz -C /gentoo
-          
+          sudo tar xpf stage3.tar.xz -C /gentoo --xattrs-include='*.*' --numeric-owner
+
       - name: Prepare chroot mounts
         run: |
-          sudo mount --bind /dev /gentoo/dev
-          sudo mount --bind /sys /gentoo/sys
+          sudo mount --bind /dev  /gentoo/dev
+          sudo mount --bind /sys  /gentoo/sys
           sudo mount --bind /proc /gentoo/proc
-          sudo mount --bind /run /gentoo/run
+          sudo mount --bind /run  /gentoo/run
 
       - name: Configure Portage (binary-first)
         run: |
-          echo 'COMMON_FLAGS="-O2 -pipe"' | sudo tee /gentoo/etc/portage/make.conf
-          echo 'CFLAGS="${COMMON_FLAGS}"' | sudo tee -a /gentoo/etc/portage/make.conf
-          echo 'CXXFLAGS="${COMMON_FLAGS}"' | sudo tee -a /gentoo/etc/portage/make.conf
-          echo 'FEATURES="getbinpkg binpkg-request-signature -sandbox -ipc-sandbox -pid-sandbox -network-sandbox"' | sudo tee -a /gentoo/etc/portage/make.conf
-          echo 'EMERGE_DEFAULT_OPTS="--usepkg --with-bdeps=y --jobs=2 --load-average=2"' | sudo tee -a /gentoo/etc/portage/make.conf
-          echo 'PORTAGE_BINHOST="https://distfiles.gentoo.org/packages/"' | sudo tee -a /gentoo/etc/portage/make.conf
-          echo 'ACCEPT_LICENSE="*"' | sudo tee -a /gentoo/etc/portage/make.conf
+          sudo tee /gentoo/etc/portage/make.conf <<'EOF'
+          COMMON_FLAGS="-O2 -pipe"
+          CFLAGS="${COMMON_FLAGS}"
+          CXXFLAGS="${COMMON_FLAGS}"
+
+          FEATURES="getbinpkg binpkg-request-signature -sandbox -ipc-sandbox -pid-sandbox -network-sandbox"
+          EMERGE_DEFAULT_OPTS="--usepkg --with-bdeps=y --jobs=2 --load-average=2"
+          PORTAGE_BINHOST="https://distfiles.gentoo.org/packages/"
+          ACCEPT_LICENSE="*"
+          EOF
 
       - name: Block live ebuilds
         run: |
           sudo mkdir -p /gentoo/etc/portage/package.mask
-          echo "*/*::gentoo" | sudo tee /gentoo/etc/portage/package.mask/no-live
-          echo "*/*-9999" | sudo tee -a /gentoo/etc/portage/package.mask/no-live
+          sudo tee /gentoo/etc/portage/package.mask/no-live <<'EOF'
+          */*-9999
+          EOF
 
       - name: Chroot and sync Portage
         run: |
-          sudo chroot /gentoo /bin/bash -c "source /etc/profile && emerge-webrsync && eselect profile set default/linux/amd64/17.0"
+          sudo chroot /gentoo /bin/bash -c "
+            source /etc/profile &&
+            emerge-webrsync &&
+            eselect profile set default/linux/amd64/17.0
+          "
 
       - name: Install base tooling in chroot
         run: |
-          sudo chroot /gentoo /bin/bash -c "source /etc/profile && emerge --oneshot app-eselect/eselect-repository dev-vcs/git"
+          sudo chroot /gentoo /bin/bash -c "
+            source /etc/profile &&
+            emerge --oneshot app-eselect/eselect-repository dev-vcs/git
+          "
 
       - name: Add Cutefish overlay
         run: |
-          sudo chroot /gentoo /bin/bash -c "source /etc/profile && eselect repository add cutefishos git https://github.com/Internetperson-dev/cutefishos-overlay && emaint sync -r cutefishos"
+          sudo chroot /gentoo /bin/bash -c "
+            source /etc/profile &&
+            eselect repository add cutefishos git https://github.com/Internetperson-dev/cutefishos-overlay &&
+            emaint sync -r cutefishos
+          "
 
       - name: Accept keywords (stable-only, binary-first)
         run: |
+          sudo mkdir -p /gentoo/etc/portage/package.accept_keywords
           sudo tee /gentoo/etc/portage/package.accept_keywords/cutefishos <<'EOF'
           sys-libs/libcutefish ~amd64
           sys-libs/fishui ~amd64
@@ -67,4 +95,7 @@ jobs:
 
       - name: Install Cutefish binaries
         run: |
-          sudo chroot /gentoo /bin/bash -c "source /etc/profile && emerge -v sys-libs/libcutefish sys-libs/fishui sys-libs/cutefish-core"
+          sudo chroot /gentoo /bin/bash -c "
+            source /etc/profile &&
+            emerge -v sys-libs/libcutefish sys-libs/fishui sys-libs/cutefish-core
+          "
