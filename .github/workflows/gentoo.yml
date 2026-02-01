@@ -122,7 +122,7 @@ jobs:
           eselect repository add cutefishos git https://github.com/Internetperson-dev/cutefishos-overlay &&
           emaint sync -r cutefishos
 
-          sudo chroot /gentoo /bin/bash -c "
+          chroot /gentoo /bin/bash -c "
           source /etc/profile &&
           equery list sys-libs/libcutefish
           "
