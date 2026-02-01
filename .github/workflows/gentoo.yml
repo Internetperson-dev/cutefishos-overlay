@@ -16,21 +16,24 @@ jobs:
 
       - name: Download latest Gentoo stage3 (openrc)
         run: |
-          set -e
+          set -euo pipefail
 
           MIRROR="https://mirrors.rit.edu/gentoo/releases/amd64/autobuilds/current-stage3-amd64-openrc"
           LATEST_FILE="latest-stage3-amd64-openrc.txt"
 
-          wget -O ${LATEST_FILE} ${MIRROR}/${LATEST_FILE}
+          wget -O "${LATEST_FILE}" "${MIRROR}/${LATEST_FILE}"
 
-          STAGE3_TARBALL=$(grep -v '^#' ${LATEST_FILE} | awk '{print $1}')
+          STAGE3_TARBALL=$(grep '^stage3-.*\.tar\.xz' "${LATEST_FILE}")
 
           echo "Using stage3 tarball: ${STAGE3_TARBALL}"
 
-          wget -O stage3.tar.xz ${MIRROR}/${STAGE3_TARBALL}
+          wget -O stage3.tar.xz "${MIRROR}/${STAGE3_TARBALL}"
 
           sudo mkdir -p /gentoo
-          sudo tar xpf stage3.tar.xz -C /gentoo --xattrs-include='*.*' --numeric-owner
+          sudo tar xpf stage3.tar.xz \
+            -C /gentoo \
+            --xattrs-include='*.*' \
+            --numeric-owner
 
       - name: Prepare chroot mounts
         run: |
