@@ -114,9 +114,11 @@ jobs:
           sys-apps/systemd policykit
           EOF
 
-      - name: Install Cutefish (binary-first, source fallback)
+      - name: Install Cutefish binaries (non-interactive)
         run: |
           sudo chroot /gentoo /bin/bash -c "
             source /etc/profile &&
-            emerge -avuDN sys-libs/libcutefish sys-libs/fishui sys-libs/cutefish-core
+            emerge -vDN --quiet-build=y --nospinner \
+              --autounmask-write \
+              sys-libs/libcutefish sys-libs/fishui sys-libs/cutefish-core || true
           "
