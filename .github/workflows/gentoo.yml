@@ -13,7 +13,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y wget xz-utils sudo git
-
       - name: Download latest Gentoo stage3 (systemd)
         run: |
           set -euo pipefail
@@ -25,24 +24,20 @@ jobs:
           STAGE3_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/${STAGE3_DATE}/${STAGE3_TARBALL}"
           echo "Using stage3 tarball: ${STAGE3_TARBALL}"
           wget -O stage3.tar.xz "${STAGE3_URL}"
-
           sudo mkdir -p /gentoo
           sudo tar xpf stage3.tar.xz \
             -C /gentoo \
             --xattrs-include='*.*' \
             --numeric-owner
-
       - name: Prepare chroot mounts
         run: |
           sudo mount --bind /dev  /gentoo/dev
           sudo mount --bind /proc /gentoo/proc
           sudo mount --bind /sys  /gentoo/sys
           sudo mount --bind /run  /gentoo/run
-
       - name: Configure DNS for chroot
         run: |
           sudo cp --dereference /etc/resolv.conf /gentoo/etc/resolv.conf
-
       - name: Configure Portage (binary-first)
         run: |
           sudo tee /gentoo/etc/portage/make.conf <<'EOF'
@@ -55,14 +50,12 @@ jobs:
           PORTAGE_BINHOST="https://distfiles.gentoo.org/packages/"
           ACCEPT_LICENSE="*"
           EOF
-
       - name: Block live ebuilds
         run: |
           sudo mkdir -p /gentoo/etc/portage/package.mask
           sudo tee /gentoo/etc/portage/package.mask/no-live <<'EOF'
           */*-9999
           EOF
-
       - name: Sync Portage and select systemd profile
         run: |
           sudo chroot /gentoo /bin/bash -c "
@@ -70,14 +63,12 @@ jobs:
             emerge-webrsync &&
             eselect profile set default/linux/amd64/23.0/systemd
           "
-
       - name: Install base tooling
         run: |
           sudo chroot /gentoo /bin/bash -c "
             source /etc/profile &&
             emerge --oneshot app-eselect/eselect-repository dev-vcs/git
           "
-
       - name: Add Cutefish overlay
         run: |
           sudo chroot /gentoo /bin/bash -c "
@@ -85,7 +76,6 @@ jobs:
             eselect repository add cutefishos git https://github.com/Internetperson-dev/cutefishos-overlay &&
             emaint sync -r cutefishos
           "
-
       - name: Accept keywords for Cutefish
         run: |
           sudo mkdir -p /gentoo/etc/portage/package.accept_keywords
@@ -96,7 +86,6 @@ jobs:
           cutefish-base/* ~amd64
           dev-util/ninja ~amd64
           EOF
-
       - name: Pin required USE flags (CI-stable)
         run: |
           sudo mkdir -p /gentoo/etc/portage/package.use
@@ -109,11 +98,13 @@ jobs:
           
           # Audio (REQUIRED_USE safe)
           media-libs/libcanberra alsa pulseaudio udev
+
+          # Enable dbus for glib (required by cutefish-core)
+          dev-libs/glib dbus
           
           # systemd integration
           sys-apps/systemd policykit
           EOF
-
       - name: Install Cutefish binaries (non-interactive)
         run: |
           sudo chroot /gentoo /bin/bash -c "
