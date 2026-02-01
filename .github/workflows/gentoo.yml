@@ -105,15 +105,14 @@ jobs:
           
           # Graphics stack
           media-libs/freetype harfbuzz png
+          media-libs/libglvnd X
+          x11-libs/cairo X
           
           # Audio (REQUIRED_USE safe)
           media-libs/libcanberra alsa pulseaudio udev
           
           # Enable dbus for glib (required by cutefish-core)
           dev-libs/glib dbus
-          
-          # Enable X support for cairo (required by GTK)
-          x11-libs/cairo X
           
           # systemd integration
           sys-apps/systemd policykit
@@ -123,21 +122,17 @@ jobs:
         run: |
           sudo chroot /gentoo /bin/bash -c "
             source /etc/profile &&
-            # Attempt install, automatically write USE flag changes
             emerge -vDN --quiet-build=y --nospinner --autounmask-write \
-            sys-libs/libcutefish sys-libs/fishui sys-libs/cutefish-core || true &&
-            # Apply USE flag updates
+              sys-libs/libcutefish sys-libs/fishui sys-libs/cutefish-core || true &&
             etc-update --automode -5 || dispatch-conf --automode -5 || true &&
-            # Retry installation after USE flags applied
             emerge -vDN --quiet-build=y --nospinner \
-            sys-libs/libcutefish sys-libs/fishui sys-libs/cutefish-core
+              sys-libs/libcutefish sys-libs/fishui sys-libs/cutefish-core
           "
 
-      - name: Dump all USE flags
+      - name: Output all USE flags applied
         run: |
-          sudo mkdir -p /gentoo/var/log/ci
           sudo chroot /gentoo /bin/bash -c "
             source /etc/profile &&
-            equery u '*' > /var/log/ci/package_use.log &&
-            emerge --info | grep ^USE= > /var/log/ci/global_use.log
+            emerge --info > /workspace/emerge_info.txt &&
+            equery uses sys-libs/libcutefish >> /workspace/emerge_info.txt
           "
