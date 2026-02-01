@@ -117,8 +117,13 @@ jobs:
       - name: Install Cutefish binaries (non-interactive)
         run: |
           sudo chroot /gentoo /bin/bash -c "
-            source /etc/profile &&
-            emerge -vDN --quiet-build=y --nospinner \
-              --autounmask-write \
-              sys-libs/libcutefish sys-libs/fishui sys-libs/cutefish-core || true
+          source /etc/profile &&
+          eselect repository list &&
+          eselect repository add cutefishos git https://github.com/Internetperson-dev/cutefishos-overlay &&
+          emaint sync -r cutefishos
+
+          sudo chroot /gentoo /bin/bash -c "
+          source /etc/profile &&
+          equery list sys-libs/libcutefish
+          "
           "
