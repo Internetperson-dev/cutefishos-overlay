@@ -13,6 +13,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y wget xz-utils sudo git
+
       - name: Download latest Gentoo stage3 (systemd)
         run: |
           set -euo pipefail
@@ -29,15 +30,18 @@ jobs:
             -C /gentoo \
             --xattrs-include='*.*' \
             --numeric-owner
+
       - name: Prepare chroot mounts
         run: |
           sudo mount --bind /dev  /gentoo/dev
           sudo mount --bind /proc /gentoo/proc
           sudo mount --bind /sys  /gentoo/sys
           sudo mount --bind /run  /gentoo/run
+
       - name: Configure DNS for chroot
         run: |
           sudo cp --dereference /etc/resolv.conf /gentoo/etc/resolv.conf
+
       - name: Configure Portage (binary-first)
         run: |
           sudo tee /gentoo/etc/portage/make.conf <<'EOF'
@@ -50,12 +54,14 @@ jobs:
           PORTAGE_BINHOST="https://distfiles.gentoo.org/packages/"
           ACCEPT_LICENSE="*"
           EOF
+
       - name: Block live ebuilds
         run: |
           sudo mkdir -p /gentoo/etc/portage/package.mask
           sudo tee /gentoo/etc/portage/package.mask/no-live <<'EOF'
           */*-9999
           EOF
+
       - name: Sync Portage and select systemd profile
         run: |
           sudo chroot /gentoo /bin/bash -c "
@@ -63,12 +69,14 @@ jobs:
             emerge-webrsync &&
             eselect profile set default/linux/amd64/23.0/systemd
           "
+
       - name: Install base tooling
         run: |
           sudo chroot /gentoo /bin/bash -c "
             source /etc/profile &&
             emerge --oneshot app-eselect/eselect-repository dev-vcs/git
           "
+
       - name: Add Cutefish overlay
         run: |
           sudo chroot /gentoo /bin/bash -c "
@@ -76,6 +84,7 @@ jobs:
             eselect repository add cutefishos git https://github.com/Internetperson-dev/cutefishos-overlay &&
             emaint sync -r cutefishos
           "
+
       - name: Accept keywords for Cutefish
         run: |
           sudo mkdir -p /gentoo/etc/portage/package.accept_keywords
@@ -86,6 +95,7 @@ jobs:
           cutefish-base/* ~amd64
           dev-util/ninja ~amd64
           EOF
+
       - name: Pin required USE flags (CI-stable)
         run: |
           sudo mkdir -p /gentoo/etc/portage/package.use
@@ -98,17 +108,36 @@ jobs:
           
           # Audio (REQUIRED_USE safe)
           media-libs/libcanberra alsa pulseaudio udev
-
+          
           # Enable dbus for glib (required by cutefish-core)
           dev-libs/glib dbus
+          
+          # Enable X support for cairo (required by GTK)
+          x11-libs/cairo X
           
           # systemd integration
           sys-apps/systemd policykit
           EOF
-      - name: Install Cutefish binaries (non-interactive)
+
+      - name: Install Cutefish binaries (non-interactive, auto-fix USE flags)
         run: |
           sudo chroot /gentoo /bin/bash -c "
             source /etc/profile &&
+            # Attempt install, automatically write USE flag changes
+            emerge -vDN --quiet-build=y --nospinner --autounmask-write \
+            sys-libs/libcutefish sys-libs/fishui sys-libs/cutefish-core || true &&
+            # Apply USE flag updates
+            etc-update --automode -5 || dispatch-conf --automode -5 || true &&
+            # Retry installation after USE flags applied
             emerge -vDN --quiet-build=y --nospinner \
             sys-libs/libcutefish sys-libs/fishui sys-libs/cutefish-core
+          "
+
+      - name: Dump all USE flags
+        run: |
+          sudo mkdir -p /gentoo/var/log/ci
+          sudo chroot /gentoo /bin/bash -c "
+            source /etc/profile &&
+            equery u '*' > /var/log/ci/package_use.log &&
+            emerge --info | grep ^USE= > /var/log/ci/global_use.log
           "
