@@ -78,7 +78,8 @@ jobs:
           sudo chroot /gentoo /bin/bash -c "
             source /etc/profile &&
             emerge-webrsync &&
-            eselect profile set default/linux/amd64/17.0
+            eselect profile list 
+            eselect profile set 2
           "
 
       - name: Install base tooling in chroot
