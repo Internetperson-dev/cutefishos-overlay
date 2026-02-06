@@ -10,6 +10,7 @@ jobs:
     strategy:
       matrix:
         profile: [systemd, openrc]  # Test both
+
     steps:
       - name: Install basic dependencies
         run: |
@@ -24,13 +25,20 @@ jobs:
           else
             META_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64-openrc/latest-stage3-amd64-openrc.txt"
           fi
+
           wget -O latest.txt "${META_URL}"
+
           STAGE3_TARBALL=$(grep '^stage3-.*\.tar\.xz' latest.txt | awk '{print $1}')
           STAGE3_DATE=$(echo "${STAGE3_TARBALL}" | sed -E 's/.*-([0-9TZ]+)\.tar\.xz/\1/')
           STAGE3_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/${STAGE3_DATE}/${STAGE3_TARBALL}"
+
           echo "Using stage3 tarball: ${STAGE3_TARBALL}"
+          wget "${STAGE3_URL}"  # download with original filename
           sudo mkdir -p /gentoo
-          sudo tar xpf stage3.tar.xz -C /gentoo --xattrs-include='*.*' --numeric-owner
+          sudo tar xpf "${STAGE3_TARBALL}" \
+            -C /gentoo \
+            --xattrs-include='*.*' \
+            --numeric-owner
 
       - name: Prepare chroot mounts
         run: |
@@ -91,7 +99,7 @@ jobs:
           dev-util/ninja ~amd64
           EOF
 
-      - name: Pin USE flags
+      - name: Pin USE flags for Cutefish
         run: |
           sudo mkdir -p /gentoo/etc/portage/package.use
           if [[ "${{ matrix.profile }}" == "systemd" ]]; then
