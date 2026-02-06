@@ -1,4 +1,4 @@
-name: Gentoo overlay build test (binary-first, systemd)
+name: Gentoo Cutefish Build Test
 
 on:
   push:
@@ -7,29 +7,30 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
+    strategy:
+      matrix:
+        profile: [systemd, openrc]  # Test both
     steps:
       - name: Install basic dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y wget xz-utils sudo git
 
-      - name: Download latest Gentoo stage3 (systemd)
+      - name: Download latest Gentoo stage3
         run: |
           set -euo pipefail
-          META_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64-systemd/latest-stage3-amd64-systemd.txt"
+          if [[ "${{ matrix.profile }}" == "systemd" ]]; then
+            META_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64-systemd/latest-stage3-amd64-systemd.txt"
+          else
+            META_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64-openrc/latest-stage3-amd64-openrc.txt"
+          fi
           wget -O latest.txt "${META_URL}"
-          STAGE3_LINE=$(grep '^stage3-.*\.tar\.xz' latest.txt)
-          STAGE3_TARBALL=$(echo "${STAGE3_LINE}" | awk '{print $1}')
+          STAGE3_TARBALL=$(grep '^stage3-.*\.tar\.xz' latest.txt | awk '{print $1}')
           STAGE3_DATE=$(echo "${STAGE3_TARBALL}" | sed -E 's/.*-([0-9TZ]+)\.tar\.xz/\1/')
           STAGE3_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/${STAGE3_DATE}/${STAGE3_TARBALL}"
           echo "Using stage3 tarball: ${STAGE3_TARBALL}"
-          wget -O stage3.tar.xz "${STAGE3_URL}"
           sudo mkdir -p /gentoo
-          sudo tar xpf stage3.tar.xz \
-            -C /gentoo \
-            --xattrs-include='*.*' \
-            --numeric-owner
+          sudo tar xpf stage3.tar.xz -C /gentoo --xattrs-include='*.*' --numeric-owner
 
       - name: Prepare chroot mounts
         run: |
@@ -39,43 +40,37 @@ jobs:
           sudo mount --bind /run  /gentoo/run
 
       - name: Configure DNS for chroot
-        run: |
-          sudo cp --dereference /etc/resolv.conf /gentoo/etc/resolv.conf
+        run: sudo cp --dereference /etc/resolv.conf /gentoo/etc/resolv.conf
 
-      - name: Configure Portage (binary-first)
+      - name: Configure Portage
         run: |
           sudo tee /gentoo/etc/portage/make.conf <<'EOF'
           COMMON_FLAGS="-O2 -pipe"
           CFLAGS="${COMMON_FLAGS}"
           CXXFLAGS="${COMMON_FLAGS}"
-          
-          FEATURES="getbinpkg binpkg-request-signature -sandbox -ipc-sandbox -pid-sandbox -network-sandbox"
-          EMERGE_DEFAULT_OPTS="--usepkg --binpkg-respect-use=y --with-bdeps=y --jobs=2 --load-average=2"
-          PORTAGE_BINHOST="https://distfiles.gentoo.org/packages/"
+          FEATURES="getbinpkg binpkg-request-signature"
+          EMERGE_DEFAULT_OPTS="--jobs=2 --load-average=2"
           ACCEPT_LICENSE="*"
           EOF
 
-      - name: Block live ebuilds
-        run: |
-          sudo mkdir -p /gentoo/etc/portage/package.mask
-          sudo tee /gentoo/etc/portage/package.mask/no-live <<'EOF'
-          */*-9999
-          EOF
-
-      - name: Sync Portage and select systemd profile
+      - name: Sync Portage
         run: |
           sudo chroot /gentoo /bin/bash -c "
             source /etc/profile &&
-            emerge-webrsync &&
-            eselect profile set default/linux/amd64/23.0/systemd
+            emerge-webrsync
           "
 
-      - name: Install base tooling
+      - name: Set profile
         run: |
-          sudo chroot /gentoo /bin/bash -c "
-            source /etc/profile &&
-            emerge --oneshot app-eselect/eselect-repository dev-vcs/git
-          "
+          if [[ "${{ matrix.profile }}" == "systemd" ]]; then
+            sudo chroot /gentoo eselect profile set default/linux/amd64/23.0/systemd
+          else
+            sudo chroot /gentoo eselect profile set default/linux/amd64/23.0/desktop
+          fi
+
+      - name: Install base tools
+        run: |
+          sudo chroot /gentoo emerge --oneshot app-eselect/eselect-repository dev-vcs/git
 
       - name: Add Cutefish overlay
         run: |
@@ -96,43 +91,42 @@ jobs:
           dev-util/ninja ~amd64
           EOF
 
-      - name: Pin required USE flags (CI-stable)
+      - name: Pin USE flags
         run: |
           sudo mkdir -p /gentoo/etc/portage/package.use
-          sudo tee /gentoo/etc/portage/package.use/cutefish <<'EOF'
-          # Qt / KDE requirements
-          dev-qt/qtbase icu
-          
-          # Graphics stack
-          media-libs/freetype harfbuzz png
-          media-libs/libglvnd X
-          x11-libs/cairo X
-          
-          # Audio (REQUIRED_USE safe)
-          media-libs/libcanberra alsa pulseaudio udev
-          
-          # Enable dbus for glib (required by cutefish-core)
-          dev-libs/glib dbus
-          
-          # systemd integration
-          sys-apps/systemd policykit
-          EOF
+          if [[ "${{ matrix.profile }}" == "systemd" ]]; then
+            sudo tee /gentoo/etc/portage/package.use/cutefish <<'EOF'
+            dev-qt/qtbase icu gui
+            media-libs/freetype harfbuzz png
+            media-libs/libglvnd X
+            x11-libs/cairo X
+            media-libs/libcanberra alsa pulseaudio udev
+            dev-libs/glib dbus
+            sys-apps/systemd policykit
+            EOF
+          else
+            sudo tee /gentoo/etc/portage/package.use/cutefish <<'EOF'
+            dev-qt/qtbase icu gui -journald -syslog
+            media-libs/freetype harfbuzz png
+            media-libs/libglvnd X
+            x11-libs/cairo X
+            media-libs/libcanberra alsa pulseaudio udev
+            dev-libs/glib dbus
+            sys-auth/elogind
+            EOF
+          fi
 
-      - name: Install Cutefish binaries (non-interactive, auto-fix USE flags)
+      - name: Install Cutefish
         run: |
           sudo chroot /gentoo /bin/bash -c "
             source /etc/profile &&
-            emerge -vDN --quiet-build=y --nospinner --autounmask-write \
-              sys-libs/libcutefish sys-libs/fishui sys-libs/cutefish-core || true &&
-            etc-update --automode -5 || dispatch-conf --automode -5 || true &&
-            emerge -vDN --quiet-build=y --nospinner \
-              sys-libs/libcutefish sys-libs/fishui sys-libs/cutefish-core
+            emerge -vDN --quiet-build=y sys-libs/libcutefish sys-libs/fishui sys-libs/cutefish-core
           "
 
-      - name: Output all USE flags applied
+      - name: Output USE flags and emerge info
         run: |
           sudo chroot /gentoo /bin/bash -c "
             source /etc/profile &&
-            emerge --info > /workspace/emerge_info.txt &&
-            equery uses sys-libs/libcutefish >> /workspace/emerge_info.txt
+            emerge --info > /workspace/emerge_info_${{ matrix.profile }}.txt &&
+            equery uses sys-libs/libcutefish >> /workspace/emerge_info_${{ matrix.profile }}.txt
           "
