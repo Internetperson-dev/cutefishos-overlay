@@ -8,7 +8,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
       matrix:
         profile: [systemd, openrc]
 
@@ -50,19 +49,17 @@ jobs:
           sudo mount --bind /sys  /gentoo/sys
           sudo mount --bind /run  /gentoo/run
 
-      - name: Configure DNS for chroot
-        run: |
-          sudo cp --dereference /etc/resolv.conf /gentoo/etc/resolv.conf
+      - name: Configure DNS
+        run: sudo cp --dereference /etc/resolv.conf /gentoo/etc/resolv.conf
 
-      - name: Configure Portage (CI-safe)
+      - name: Configure Portage
         run: |
           sudo tee /gentoo/etc/portage/make.conf > /dev/null <<'EOF'
           COMMON_FLAGS="-O2 -pipe"
           CFLAGS="${COMMON_FLAGS}"
           CXXFLAGS="${COMMON_FLAGS}"
-          
-          FEATURES="-ipc-sandbox -pid-sandbox -network-sandbox -userfetch -usersandbox -parallel-fetch"
-          EMERGE_DEFAULT_OPTS="--jobs=1 --load-average=1"
+          FEATURES="getbinpkg binpkg-request-signature"
+          EMERGE_DEFAULT_OPTS="--jobs=2 --load-average=2"
           ACCEPT_LICENSE="*"
           EOF
 
@@ -73,7 +70,7 @@ jobs:
             emerge-webrsync
           "
 
-      - name: Select Profile
+      - name: Set profile
         run: |
           if [[ "${{ matrix.profile }}" == "systemd" ]]; then
             sudo chroot /gentoo eselect profile set default/linux/amd64/23.0/systemd
@@ -83,10 +80,7 @@ jobs:
 
       - name: Install base tools
         run: |
-          sudo chroot /gentoo /bin/bash -c "
-            source /etc/profile &&
-            emerge --oneshot app-eselect/eselect-repository dev-vcs/git
-          "
+          sudo chroot /gentoo emerge --oneshot app-eselect/eselect-repository dev-vcs/git
 
       - name: Add Cutefish overlay
         run: |
@@ -96,7 +90,7 @@ jobs:
             emaint sync -r cutefishos
           "
 
-      - name: Accept keywords for Cutefish
+      - name: Accept keywords
         run: |
           sudo mkdir -p /gentoo/etc/portage/package.accept_keywords
           sudo tee /gentoo/etc/portage/package.accept_keywords/cutefishos > /dev/null <<'EOF'
@@ -107,7 +101,7 @@ jobs:
           dev-util/ninja ~amd64
           EOF
 
-      - name: Pin USE flags for Cutefish
+      - name: Pin USE flags
         run: |
           sudo mkdir -p /gentoo/etc/portage/package.use
 
@@ -121,8 +115,8 @@ jobs:
             dev-libs/glib dbus
             sys-apps/systemd policykit
             EOF
-                      else
-                        sudo tee /gentoo/etc/portage/package.use/cutefish > /dev/null <<'EOF'
+          else
+            sudo tee /gentoo/etc/portage/package.use/cutefish > /dev/null <<'EOF'
             dev-qt/qtbase icu gui -journald -syslog
             media-libs/freetype harfbuzz png
             media-libs/libglvnd X
@@ -137,13 +131,5 @@ jobs:
         run: |
           sudo chroot /gentoo /bin/bash -c "
             source /etc/profile &&
-            emerge -vDN sys-libs/libcutefish sys-libs/fishui sys-libs/cutefish-core
-          "
-
-      - name: Output emerge info
-        run: |
-          sudo mkdir -p workspace
-          sudo chroot /gentoo /bin/bash -c "
-            source /etc/profile &&
-            emerge --info > /workspace/emerge_info_${{ matrix.profile }}.txt
+            emerge -vDN --quiet-build=y sys-libs/libcutefish sys-libs/fishui sys-libs/cutefish-core
           "
