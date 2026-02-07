@@ -21,7 +21,7 @@ jobs:
 
       - name: Bootstrap Gentoo Prefix
         run: |
-          curl -L https://github.com/gentoo/gentoo-prefix/releases/latest/download/bootstrap-prefix.sh -o bootstrap-prefix.sh
+          curl -L https://gitweb.gentoo.org/repo/proj/prefix.git/plain/scripts/bootstrap-prefix.sh -o bootstrap-prefix.sh
           chmod +x bootstrap-prefix.sh
           ./bootstrap-prefix.sh ~/gentoo
 
