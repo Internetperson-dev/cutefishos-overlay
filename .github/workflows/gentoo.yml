@@ -39,10 +39,10 @@ jobs:
 
       - name: Prepare chroot mounts
         run: |
-          sudo mount --bind /dev  /gentoo/dev
+          sudo mount --bind /dev /gentoo/dev
           sudo mount --bind /proc /gentoo/proc
-          sudo mount --bind /sys  /gentoo/sys
-          sudo mount --bind /run  /gentoo/run
+          sudo mount --bind /sys /gentoo/sys
+          sudo mount --bind /run /gentoo/run
 
       - name: Configure DNS
         run: sudo cp --dereference /etc/resolv.conf /gentoo/etc/resolv.conf
