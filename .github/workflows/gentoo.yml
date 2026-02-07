@@ -8,6 +8,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         profile: [systemd, openrc]
 
@@ -25,11 +26,12 @@ jobs:
           else
             META_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64-openrc/latest-stage3-amd64-openrc.txt"
           fi
+
           wget -O latest.txt "${META_URL}"
           STAGE3_TARBALL=$(grep '^stage3-.*\.tar\.xz' latest.txt | awk '{print $1}')
           STAGE3_DATE=$(echo "${STAGE3_TARBALL}" | sed -E 's/.*-([0-9TZ]+)\.tar\.xz/\1/')
           STAGE3_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/${STAGE3_DATE}/${STAGE3_TARBALL}"
-          echo "Using stage3 tarball: ${STAGE3_TARBALL}"
+
           wget "${STAGE3_URL}"
           sudo mkdir -p /gentoo
           sudo tar xpf "${STAGE3_TARBALL}" \
@@ -47,21 +49,23 @@ jobs:
       - name: Configure DNS
         run: sudo cp --dereference /etc/resolv.conf /gentoo/etc/resolv.conf
 
-      - name: Configure Portage
+      - name: Configure Portage (CI safe)
         run: |
           sudo tee /gentoo/etc/portage/make.conf > /dev/null <<'EOF'
           COMMON_FLAGS="-O2 -pipe"
           CFLAGS="${COMMON_FLAGS}"
           CXXFLAGS="${COMMON_FLAGS}"
-          FEATURES="getbinpkg binpkg-request-signature"
-          EMERGE_DEFAULT_OPTS="--jobs=2 --load-average=2"
+
+          # GitHub CI safe settings
+          FEATURES="-sandbox -usersandbox -ipc-sandbox -network-sandbox -pty"
+          EMERGE_DEFAULT_OPTS="--jobs=1 --load-average=1 --quiet-build=y --nospinner"
+          
           ACCEPT_LICENSE="*"
           EOF
 
       - name: Sync Portage
         run: |
-          sudo chroot /gentoo /bin/bash -c "
-            source /etc/profile &&
+          sudo chroot /gentoo /bin/bash -lc "
             emerge-webrsync
           "
 
@@ -75,12 +79,13 @@ jobs:
 
       - name: Install base tools
         run: |
-          sudo chroot /gentoo emerge --oneshot app-eselect/eselect-repository dev-vcs/git
+          sudo chroot /gentoo /bin/bash -lc "
+            emerge --oneshot app-eselect/eselect-repository dev-vcs/git
+          "
 
       - name: Add Cutefish overlay
         run: |
-          sudo chroot /gentoo /bin/bash -c "
-            source /etc/profile &&
+          sudo chroot /gentoo /bin/bash -lc "
             eselect repository add cutefishos git https://github.com/Internetperson-dev/cutefishos-overlay &&
             emaint sync -r cutefishos
           "
@@ -123,7 +128,6 @@ jobs:
 
       - name: Install Cutefish
         run: |
-          sudo chroot /gentoo /bin/bash -c "
-            source /etc/profile &&
-            emerge -vDN --quiet-build=y sys-libs/libcutefish sys-libs/fishui sys-libs/cutefish-core
+          sudo chroot /gentoo /bin/bash -lc "
+            emerge -vDN sys-libs/libcutefish sys-libs/fishui sys-libs/cutefish-core
           "
