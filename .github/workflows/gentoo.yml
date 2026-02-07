@@ -21,6 +21,7 @@ jobs:
       - name: Download latest Gentoo stage3
         run: |
           set -euo pipefail
+
           if [[ "${{ matrix.profile }}" == "systemd" ]]; then
             META_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64-systemd/latest-stage3-amd64-systemd.txt"
           else
@@ -28,11 +29,13 @@ jobs:
           fi
 
           wget -O latest.txt "${META_URL}"
+
           STAGE3_TARBALL=$(grep '^stage3-.*\.tar\.xz' latest.txt | awk '{print $1}')
           STAGE3_DATE=$(echo "${STAGE3_TARBALL}" | sed -E 's/.*-([0-9TZ]+)\.tar\.xz/\1/')
           STAGE3_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/${STAGE3_DATE}/${STAGE3_TARBALL}"
 
           wget "${STAGE3_URL}"
+
           sudo mkdir -p /gentoo
           sudo tar xpf "${STAGE3_TARBALL}" \
             -C /gentoo \
@@ -51,23 +54,23 @@ jobs:
 
       - name: Configure Portage (CI safe)
         run: |
-          sudo tee /gentoo/etc/portage/make.conf > /dev/null <<'EOF'
-          COMMON_FLAGS="-O2 -pipe"
-          CFLAGS="${COMMON_FLAGS}"
-          CXXFLAGS="${COMMON_FLAGS}"
+          sudo mkdir -p /gentoo/etc/portage
 
-          # GitHub CI safe settings
-          FEATURES="-sandbox -usersandbox -ipc-sandbox -network-sandbox -pty"
-          EMERGE_DEFAULT_OPTS="--jobs=1 --load-average=1 --quiet-build=y --nospinner"
-          
-          ACCEPT_LICENSE="*"
-          EOF
+          printf "%s\n" \
+            'COMMON_FLAGS="-O2 -pipe"' \
+            'CFLAGS="${COMMON_FLAGS}"' \
+            'CXXFLAGS="${COMMON_FLAGS}"' \
+            '' \
+            '# GitHub CI safe settings' \
+            'FEATURES="-sandbox -usersandbox -ipc-sandbox -network-sandbox -pty"' \
+            'EMERGE_DEFAULT_OPTS="--jobs=1 --load-average=1 --quiet-build=y --nospinner"' \
+            '' \
+            'ACCEPT_LICENSE="*"' \
+            | sudo tee /gentoo/etc/portage/make.conf > /dev/null
 
       - name: Sync Portage
         run: |
-          sudo chroot /gentoo /bin/bash -lc "
-            emerge-webrsync
-          "
+          sudo chroot /gentoo /bin/bash -lc "emerge-webrsync"
 
       - name: Set profile
         run: |
@@ -79,9 +82,7 @@ jobs:
 
       - name: Install base tools
         run: |
-          sudo chroot /gentoo /bin/bash -lc "
-            emerge --oneshot app-eselect/eselect-repository dev-vcs/git
-          "
+          sudo chroot /gentoo /bin/bash -lc "emerge --oneshot app-eselect/eselect-repository dev-vcs/git"
 
       - name: Add Cutefish overlay
         run: |
@@ -93,37 +94,39 @@ jobs:
       - name: Accept keywords
         run: |
           sudo mkdir -p /gentoo/etc/portage/package.accept_keywords
-          sudo tee /gentoo/etc/portage/package.accept_keywords/cutefishos > /dev/null <<'EOF'
-          sys-libs/libcutefish ~amd64
-          sys-libs/fishui ~amd64
-          sys-libs/cutefish-core ~amd64
-          cutefish-base/* ~amd64
-          dev-util/ninja ~amd64
-          EOF
+
+          printf "%s\n" \
+            "sys-libs/libcutefish ~amd64" \
+            "sys-libs/fishui ~amd64" \
+            "sys-libs/cutefish-core ~amd64" \
+            "cutefish-base/* ~amd64" \
+            "dev-util/ninja ~amd64" \
+            | sudo tee /gentoo/etc/portage/package.accept_keywords/cutefishos > /dev/null
 
       - name: Pin USE flags
         run: |
           sudo mkdir -p /gentoo/etc/portage/package.use
+
           if [[ "${{ matrix.profile }}" == "systemd" ]]; then
-            sudo tee /gentoo/etc/portage/package.use/cutefish > /dev/null <<'EOF'
-            dev-qt/qtbase icu gui
-            media-libs/freetype harfbuzz png
-            media-libs/libglvnd X
-            x11-libs/cairo X
-            media-libs/libcanberra alsa pulseaudio udev
-            dev-libs/glib dbus
-            sys-apps/systemd policykit
-            EOF
+            printf "%s\n" \
+              "dev-qt/qtbase icu gui" \
+              "media-libs/freetype harfbuzz png" \
+              "media-libs/libglvnd X" \
+              "x11-libs/cairo X" \
+              "media-libs/libcanberra alsa pulseaudio udev" \
+              "dev-libs/glib dbus" \
+              "sys-apps/systemd policykit" \
+              | sudo tee /gentoo/etc/portage/package.use/cutefish > /dev/null
           else
-            sudo tee /gentoo/etc/portage/package.use/cutefish > /dev/null <<'EOF'
-            dev-qt/qtbase icu gui -journald -syslog
-            media-libs/freetype harfbuzz png
-            media-libs/libglvnd X
-            x11-libs/cairo X
-            media-libs/libcanberra alsa pulseaudio udev
-            dev-libs/glib dbus
-            sys-auth/elogind
-            EOF
+            printf "%s\n" \
+              "dev-qt/qtbase icu gui -journald -syslog" \
+              "media-libs/freetype harfbuzz png" \
+              "media-libs/libglvnd X" \
+              "x11-libs/cairo X" \
+              "media-libs/libcanberra alsa pulseaudio udev" \
+              "dev-libs/glib dbus" \
+              "sys-auth/elogind" \
+              | sudo tee /gentoo/etc/portage/package.use/cutefish > /dev/null
           fi
 
       - name: Install Cutefish
