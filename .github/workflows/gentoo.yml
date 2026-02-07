@@ -13,10 +13,10 @@ jobs:
         profile: [systemd, openrc]
 
     steps:
-      - name: Install basic dependencies
+      - name: Install host dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget xz-utils sudo git
+          sudo apt-get install -y wget xz-utils git sudo rsync
 
       - name: Download latest Gentoo stage3
         run: |
@@ -29,7 +29,6 @@ jobs:
           fi
 
           wget -O latest.txt "${META_URL}"
-
           STAGE3_TARBALL=$(grep '^stage3-.*\.tar\.xz' latest.txt | awk '{print $1}')
           STAGE3_DATE=$(echo "${STAGE3_TARBALL}" | sed -E 's/.*-([0-9TZ]+)\.tar\.xz/\1/')
           STAGE3_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/${STAGE3_DATE}/${STAGE3_TARBALL}"
@@ -42,17 +41,15 @@ jobs:
             --xattrs-include='*.*' \
             --numeric-owner
 
-      - name: Prepare chroot mounts
+      - name: Prepare chroot
         run: |
           sudo mount --bind /dev /gentoo/dev
           sudo mount --bind /proc /gentoo/proc
           sudo mount --bind /sys /gentoo/sys
           sudo mount --bind /run /gentoo/run
+          sudo cp --dereference /etc/resolv.conf /gentoo/etc/resolv.conf
 
-      - name: Configure DNS
-        run: sudo cp --dereference /etc/resolv.conf /gentoo/etc/resolv.conf
-
-      - name: Configure Portage (CI safe)
+      - name: Configure Portage
         run: |
           sudo mkdir -p /gentoo/etc/portage
 
@@ -61,16 +58,23 @@ jobs:
             'CFLAGS="${COMMON_FLAGS}"' \
             'CXXFLAGS="${COMMON_FLAGS}"' \
             '' \
-            '# GitHub CI safe settings' \
             'FEATURES="-sandbox -usersandbox -ipc-sandbox -network-sandbox -pty"' \
-            'EMERGE_DEFAULT_OPTS="--jobs=1 --load-average=1 --quiet-build=y --nospinner"' \
+            'EMERGE_DEFAULT_OPTS="--jobs=1 --load-average=1 --quiet-build=y --nospinner --with-bdeps=y --complete-graph=y"' \
             '' \
             'ACCEPT_LICENSE="*"' \
             | sudo tee /gentoo/etc/portage/make.conf > /dev/null
 
-      - name: Sync Portage
+      - name: Sync Portage (properly)
         run: |
-          sudo chroot /gentoo /bin/bash -lc "emerge-webrsync"
+          sudo chroot /gentoo /bin/bash -lc "
+            emerge --sync
+          "
+
+      - name: Update base system (toolchain alignment)
+        run: |
+          sudo chroot /gentoo /bin/bash -lc "
+            emerge -uDN @system
+          "
 
       - name: Set profile
         run: |
@@ -82,7 +86,9 @@ jobs:
 
       - name: Install base tools
         run: |
-          sudo chroot /gentoo /bin/bash -lc "emerge --oneshot app-eselect/eselect-repository dev-vcs/git"
+          sudo chroot /gentoo /bin/bash -lc "
+            emerge app-eselect/eselect-repository dev-vcs/git
+          "
 
       - name: Add Cutefish overlay
         run: |
@@ -102,6 +108,14 @@ jobs:
             "cutefish-base/* ~amd64" \
             "dev-util/ninja ~amd64" \
             | sudo tee /gentoo/etc/portage/package.accept_keywords/cutefishos > /dev/null
+
+      - name: Fix dependency cycles
+        run: |
+          sudo mkdir -p /gentoo/etc/portage/package.use
+
+          printf "%s\n" \
+            "media-libs/tiff -webp" \
+            | sudo tee /gentoo/etc/portage/package.use/ci-fixes > /dev/null
 
       - name: Pin USE flags
         run: |
