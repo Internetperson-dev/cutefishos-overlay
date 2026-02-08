@@ -1,73 +1,142 @@
-name: Cutefish CI Build
+name: Gentoo Cutefish Build Test
 
 on:
   push:
-    branches:
-      - main
   pull_request:
-  workflow_dispatch:   # <-- This enables the "Run workflow" button
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [systemd, openrc]
 
-      - name: Install dependencies
+    steps:
+      - name: Install basic dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y git curl python3 python3-pip xz-utils sudo
+          sudo apt-get install -y wget xz-utils sudo git
 
-      - name: Bootstrap Gentoo Prefix
+      - name: Download latest Gentoo stage3
         run: |
-          curl -L https://gitweb.gentoo.org/repo/proj/prefix.git/plain/scripts/bootstrap-prefix.sh -o bootstrap-prefix.sh
-          chmod +x bootstrap-prefix.sh
-          ./bootstrap-prefix.sh ~/gentoo
+          set -euo pipefail
 
-      - name: Set Gentoo environment
-        run: |
-          source ~/gentoo/etc/profile.env
-          export PATH=~/gentoo/usr/bin:$PATH
+          if [[ "${{ matrix.profile }}" == "systemd" ]]; then
+            META_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64-systemd/latest-stage3-amd64-systemd.txt"
+          else
+            META_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64-openrc/latest-stage3-amd64-openrc.txt"
+          fi
 
-      - name: Break circular dependencies
-        run: |
-          mkdir -p ~/gentoo/etc/portage/package.use/cutefish
-          echo "media-libs/libwebp -tiff" >> ~/gentoo/etc/portage/package.use/cutefish/libwebp
-          echo "media-libs/tiff -webp" >> ~/gentoo/etc/portage/package.use/cutefish/tiff
+          wget -O latest.txt "${META_URL}"
+          STAGE3_TARBALL=$(grep '^stage3-.*\.tar\.xz' latest.txt | awk '{print $1}')
+          STAGE3_DATE=$(echo "${STAGE3_TARBALL}" | sed -E 's/.*-([0-9TZ]+)\.tar\.xz/\1/')
+          STAGE3_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/${STAGE3_DATE}/${STAGE3_TARBALL}"
 
-      - name: Sync Portage tree
-        run: |
-          emerge --sync
+          wget "${STAGE3_URL}"
 
-      - name: Update world
-        run: |
-          emerge -uDN @world
+          sudo mkdir -p /gentoo
+          sudo tar xpf "${STAGE3_TARBALL}" \
+            -C /gentoo \
+            --xattrs-include='*.*' \
+            --numeric-owner
 
-      - name: Install Cutefish dependencies
+      - name: Prepare chroot mounts
         run: |
-          emerge -v \
-            dev-libs/glib \
-            sys-libs/udisks \
-            sys-auth/polkit \
-            media-libs/libwebp \
-            media-libs/tiff \
-            x11-libs/gtk+ \
-            dev-qt/qtbase \
-            dev-qt/qttools \
-            kde-frameworks/kio \
-            kde-frameworks/kcoreaddons \
-            kde-frameworks/kwindowsystem
+          sudo mount --bind /dev /gentoo/dev
+          sudo mount --bind /proc /gentoo/proc
+          sudo mount --bind /sys /gentoo/sys
+          sudo mount --bind /run /gentoo/run
 
-      - name: Build Cutefish
-        run: |
-          cd $GITHUB_WORKSPACE
-          mkdir -p build
-          cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Release
-          make -j$(nproc)
+      - name: Configure DNS
+        run: sudo cp --dereference /etc/resolv.conf /gentoo/etc/resolv.conf
 
-      - name: Run tests
+      - name: Configure Portage (CI safe)
         run: |
-          cd $GITHUB_WORKSPACE/build
-          ctest --output-on-failure
+          sudo sh -c 'cat > /gentoo/etc/portage/make.conf <<EOF
+          COMMON_FLAGS="-O2 -pipe"
+          CFLAGS="\${COMMON_FLAGS}"
+          CXXFLAGS="\${COMMON_FLAGS}"
+          FEATURES="-sandbox -usersandbox -ipc-sandbox -network-sandbox -pty"
+          EMERGE_DEFAULT_OPTS="--jobs=1 --load-average=1 --quiet-build=y --nospinner"
+          ACCEPT_LICENSE="*"
+          EOF'
+
+      - name: Sync Portage
+        run: |
+          sudo chroot /gentoo /bin/bash -lc "emerge-webrsync"
+
+      - name: Set profile
+        run: |
+          if [[ "${{ matrix.profile }}" == "systemd" ]]; then
+            sudo chroot /gentoo eselect profile set default/linux/amd64/23.0/systemd
+          else
+            sudo chroot /gentoo eselect profile set default/linux/amd64/23.0/desktop
+          fi
+
+      - name: Update toolchain (glibc, gcc, binutils)
+        run: |
+          sudo chroot /gentoo /bin/bash -lc "
+            emerge --oneshot sys-devel/binutils sys-devel/gcc sys-libs/glibc
+          "
+
+      - name: Install base tools
+        run: |
+          sudo chroot /gentoo /bin/bash -lc "
+            emerge --oneshot app-eselect/eselect-repository dev-vcs/git
+          "
+
+      - name: Add Cutefish overlay
+        run: |
+          sudo chroot /gentoo /bin/bash -lc "
+            eselect repository add cutefishos git https://github.com/Internetperson-dev/cutefishos-overlay
+            emaint sync -r cutefishos
+          "
+
+      - name: Accept keywords
+        run: |
+          sudo mkdir -p /gentoo/etc/portage/package.accept_keywords
+          sudo sh -c 'cat > /gentoo/etc/portage/package.accept_keywords/cutefishos <<EOF
+          sys-libs/libcutefish ~amd64
+          sys-libs/fishui ~amd64
+          sys-libs/cutefish-core ~amd64
+          cutefish-base/* ~amd64
+          dev-util/ninja ~amd64
+          EOF'
+
+      - name: Pin USE flags
+        run: |
+          sudo mkdir -p /gentoo/etc/portage/package.use
+
+          if [[ "${{ matrix.profile }}" == "systemd" ]]; then
+            sudo sh -c 'cat > /gentoo/etc/portage/package.use/cutefish <<EOF
+            dev-qt/qtbase icu gui
+            media-libs/freetype harfbuzz png
+            media-libs/libglvnd X
+            x11-libs/cairo X
+            media-libs/libcanberra alsa pulseaudio udev
+            dev-libs/glib dbus
+            sys-apps/systemd policykit
+            EOF'
+          else
+            sudo sh -c 'cat > /gentoo/etc/portage/package.use/cutefish <<EOF
+            dev-qt/qtbase icu gui -journald -syslog
+            media-libs/freetype harfbuzz png
+            media-libs/libglvnd X
+            x11-libs/cairo X
+            media-libs/libcanberra alsa pulseaudio udev
+            dev-libs/glib dbus
+            sys-auth/elogind
+            EOF'
+          fi
+
+      - name: Break libwebp / tiff circular dependency
+        run: |
+          sudo mkdir -p /gentoo/etc/portage/package.use
+          sudo sh -c 'echo "media-libs/tiff -webp" > /gentoo/etc/portage/package.use/ci-cycles'
+
+      - name: Install Cutefish
+        run: |
+          sudo chroot /gentoo /bin/bash -lc "
+            emerge -vDN sys-libs/libcutefish sys-libs/fishui sys-libs/cutefish-core
+          "
