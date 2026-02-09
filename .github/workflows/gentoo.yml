@@ -13,7 +13,7 @@ jobs:
         profile: [systemd, openrc]
 
     steps:
-      - name: Install basic dependencies
+      - name: Install host dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y wget xz-utils sudo git
@@ -21,49 +21,52 @@ jobs:
       - name: Download latest Gentoo stage3
         run: |
           set -euo pipefail
+
           if [[ "${{ matrix.profile }}" == "systemd" ]]; then
             META_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64-systemd/latest-stage3-amd64-systemd.txt"
           else
             META_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64-openrc/latest-stage3-amd64-openrc.txt"
           fi
+
           wget -O latest.txt "${META_URL}"
           STAGE3_TARBALL=$(grep '^stage3-.*\.tar\.xz' latest.txt | awk '{print $1}')
           STAGE3_DATE=$(echo "${STAGE3_TARBALL}" | sed -E 's/.*-([0-9TZ]+)\.tar\.xz/\1/')
           STAGE3_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/${STAGE3_DATE}/${STAGE3_TARBALL}"
+
           wget "${STAGE3_URL}"
+
           sudo mkdir -p /gentoo
           sudo tar xpf "${STAGE3_TARBALL}" \
             -C /gentoo \
             --xattrs-include='*.*' \
             --numeric-owner
 
-      - name: Prepare chroot mounts
+      - name: Mount filesystems
         run: |
           sudo mount --bind /dev /gentoo/dev
           sudo mount --bind /proc /gentoo/proc
           sudo mount --bind /sys /gentoo/sys
           sudo mount --bind /run /gentoo/run
+          sudo cp --dereference /etc/resolv.conf /gentoo/etc/resolv.conf
 
-      - name: Configure DNS
-        run: sudo cp --dereference /etc/resolv.conf /gentoo/etc/resolv.conf
-
-      - name: Configure Portage (CI safe + binpkg)
+      - name: Configure Portage (binary toolchain)
         run: |
-          sudo sh -c 'cat > /gentoo/etc/portage/make.conf <<EOF
-          COMMON_FLAGS="-O2 -pipe"
-          CFLAGS="\${COMMON_FLAGS}"
-          CXXFLAGS="\${COMMON_FLAGS}"
-          FEATURES="getbinpkg binpkg-request-signature -sandbox -usersandbox -ipc-sandbox -network-sandbox -pty"
-          PORTAGE_BINHOST="https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/x86-64/"
-          EMERGE_DEFAULT_OPTS="--jobs=1 --load-average=1 --quiet-build=y --nospinner --getbinpkg"
-          ACCEPT_LICENSE="*"
-          EOF'
+          sudo tee /gentoo/etc/portage/make.conf > /dev/null <<EOF
+COMMON_FLAGS="-O2 -pipe"
+CFLAGS="\${COMMON_FLAGS}"
+CXXFLAGS="\${COMMON_FLAGS}"
+
+FEATURES="getbinpkg binpkg-request-signature -sandbox -usersandbox -ipc-sandbox -network-sandbox -pty"
+PORTAGE_BINHOST="https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/x86-64/"
+EMERGE_DEFAULT_OPTS="--jobs=1 --load-average=1 --quiet-build=y --nospinner --getbinpkg"
+ACCEPT_LICENSE="*"
+EOF
 
       - name: Sync Portage
         run: |
           sudo chroot /gentoo /bin/bash -lc "emerge-webrsync"
 
-      - name: Set profile
+      - name: Select profile
         run: |
           if [[ "${{ matrix.profile }}" == "systemd" ]]; then
             sudo chroot /gentoo eselect profile set default/linux/amd64/23.0/systemd
@@ -71,7 +74,21 @@ jobs:
             sudo chroot /gentoo eselect profile set default/linux/amd64/23.0/desktop
           fi
 
-      - name: Install toolchain from official binhost
+      - name: Force Qt5 / KF5 (prevent Qt6 pull)
+        run: |
+          sudo mkdir -p /gentoo/etc/portage/package.mask
+
+          sudo tee /gentoo/etc/portage/package.mask/qt6-mask > /dev/null <<EOF
+>=dev-qt/qtbase-6
+>=dev-qt/qtcore-6
+>=dev-qt/qtgui-6
+>=dev-qt/qtwidgets-6
+>=dev-qt/qtwayland-6
+>=kde-frameworks/*-6
+>=kde-plasma/*-6
+EOF
+
+      - name: Install binary toolchain
         run: |
           sudo chroot /gentoo /bin/bash -lc "
             emerge -gK sys-devel/binutils sys-devel/gcc sys-libs/glibc
@@ -90,49 +107,38 @@ jobs:
             emaint sync -r cutefishos
           "
 
-      - name: Accept keywords
+      - name: Accept ~amd64 keywords
         run: |
           sudo mkdir -p /gentoo/etc/portage/package.accept_keywords
-          sudo sh -c 'cat > /gentoo/etc/portage/package.accept_keywords/cutefishos <<EOF
-          sys-libs/libcutefish ~amd64
-          sys-libs/fishui ~amd64
-          sys-libs/cutefish-core ~amd64
-          cutefish-base/* ~amd64
-          dev-util/ninja ~amd64
-          EOF'
 
-      - name: Pin USE flags
+          sudo tee /gentoo/etc/portage/package.accept_keywords/cutefishos > /dev/null <<EOF
+sys-libs/libcutefish ~amd64
+sys-libs/fishui ~amd64
+sys-libs/cutefish-core ~amd64
+cutefish-base/* ~amd64
+EOF
+
+      - name: Minimal USE adjustments
         run: |
           sudo mkdir -p /gentoo/etc/portage/package.use
+
           if [[ "${{ matrix.profile }}" == "systemd" ]]; then
-            sudo sh -c 'cat > /gentoo/etc/portage/package.use/cutefish <<EOF
-            dev-qt/qtbase icu gui
-            media-libs/freetype harfbuzz png
-            media-libs/libglvnd X
-            x11-libs/cairo X
-            media-libs/libcanberra alsa pulseaudio udev
-            dev-libs/glib dbus
-            sys-apps/systemd policykit
-            EOF'
+            sudo tee /gentoo/etc/portage/package.use/cutefish > /dev/null <<EOF
+media-libs/tiff -webp
+sys-apps/systemd policykit
+EOF
           else
-            sudo sh -c 'cat > /gentoo/etc/portage/package.use/cutefish <<EOF
-            dev-qt/qtbase icu gui -journald -syslog
-            media-libs/freetype harfbuzz png
-            media-libs/libglvnd X
-            x11-libs/cairo X
-            media-libs/libcanberra alsa pulseaudio udev
-            dev-libs/glib dbus
-            sys-auth/elogind
-            EOF'
+            sudo tee /gentoo/etc/portage/package.use/cutefish > /dev/null <<EOF
+media-libs/tiff -webp
+sys-auth/elogind
+EOF
           fi
 
-      - name: Break libwebp / tiff circular dependency
-        run: |
-          sudo mkdir -p /gentoo/etc/portage/package.use
-          sudo sh -c 'echo "media-libs/tiff -webp" > /gentoo/etc/portage/package.use/ci-cycles'
-
-      - name: Install Cutefish
+      - name: Build Cutefish stack
         run: |
           sudo chroot /gentoo /bin/bash -lc "
-            emerge -vDN sys-libs/libcutefish sys-libs/fishui sys-libs/cutefish-core
+            emerge -vDN \
+              sys-libs/libcutefish \
+              sys-libs/fishui \
+              sys-libs/cutefish-core
           "
