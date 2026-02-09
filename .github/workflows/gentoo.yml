@@ -22,7 +22,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ "${{ matrix.profile }}" == "systemd" ]]; then
+          if [ "${{ matrix.profile }}" = "systemd" ]; then
             META_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64-systemd/latest-stage3-amd64-systemd.txt"
           else
             META_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64-openrc/latest-stage3-amd64-openrc.txt"
@@ -41,7 +41,7 @@ jobs:
             --xattrs-include='*.*' \
             --numeric-owner
 
-      - name: Mount filesystems
+      - name: Mount chroot
         run: |
           sudo mount --bind /dev /gentoo/dev
           sudo mount --bind /proc /gentoo/proc
@@ -49,18 +49,17 @@ jobs:
           sudo mount --bind /run /gentoo/run
           sudo cp --dereference /etc/resolv.conf /gentoo/etc/resolv.conf
 
-      - name: Configure Portage (binary toolchain)
+      - name: Configure Portage
         run: |
           sudo tee /gentoo/etc/portage/make.conf > /dev/null <<EOF
-COMMON_FLAGS="-O2 -pipe"
-CFLAGS="\${COMMON_FLAGS}"
-CXXFLAGS="\${COMMON_FLAGS}"
-
-FEATURES="getbinpkg binpkg-request-signature -sandbox -usersandbox -ipc-sandbox -network-sandbox -pty"
-PORTAGE_BINHOST="https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/x86-64/"
-EMERGE_DEFAULT_OPTS="--jobs=1 --load-average=1 --quiet-build=y --nospinner --getbinpkg"
-ACCEPT_LICENSE="*"
-EOF
+          COMMON_FLAGS="-O2 -pipe"
+          CFLAGS="\${COMMON_FLAGS}"
+          CXXFLAGS="\${COMMON_FLAGS}"
+          FEATURES="getbinpkg binpkg-request-signature -sandbox -usersandbox -ipc-sandbox -network-sandbox -pty"
+          PORTAGE_BINHOST="https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/x86-64/"
+          EMERGE_DEFAULT_OPTS="--jobs=1 --load-average=1 --quiet-build=y --nospinner --getbinpkg"
+          ACCEPT_LICENSE="*"
+          EOF
 
       - name: Sync Portage
         run: |
@@ -68,25 +67,24 @@ EOF
 
       - name: Select profile
         run: |
-          if [[ "${{ matrix.profile }}" == "systemd" ]]; then
+          if [ "${{ matrix.profile }}" = "systemd" ]; then
             sudo chroot /gentoo eselect profile set default/linux/amd64/23.0/systemd
           else
             sudo chroot /gentoo eselect profile set default/linux/amd64/23.0/desktop
           fi
 
-      - name: Force Qt5 / KF5 (prevent Qt6 pull)
+      - name: Mask Qt6 and KF6
         run: |
           sudo mkdir -p /gentoo/etc/portage/package.mask
-
           sudo tee /gentoo/etc/portage/package.mask/qt6-mask > /dev/null <<EOF
->=dev-qt/qtbase-6
->=dev-qt/qtcore-6
->=dev-qt/qtgui-6
->=dev-qt/qtwidgets-6
->=dev-qt/qtwayland-6
->=kde-frameworks/*-6
->=kde-plasma/*-6
-EOF
+          >=dev-qt/qtbase-6
+          >=dev-qt/qtcore-6
+          >=dev-qt/qtgui-6
+          >=dev-qt/qtwidgets-6
+          >=dev-qt/qtwayland-6
+          >=kde-frameworks/*-6
+          >=kde-plasma/*-6
+          EOF
 
       - name: Install binary toolchain
         run: |
@@ -107,31 +105,30 @@ EOF
             emaint sync -r cutefishos
           "
 
-      - name: Accept ~amd64 keywords
+      - name: Accept ~amd64
         run: |
           sudo mkdir -p /gentoo/etc/portage/package.accept_keywords
-
           sudo tee /gentoo/etc/portage/package.accept_keywords/cutefishos > /dev/null <<EOF
-sys-libs/libcutefish ~amd64
-sys-libs/fishui ~amd64
-sys-libs/cutefish-core ~amd64
-cutefish-base/* ~amd64
-EOF
+          sys-libs/libcutefish ~amd64
+          sys-libs/fishui ~amd64
+          sys-libs/cutefish-core ~amd64
+          cutefish-base/* ~amd64
+          EOF
 
-      - name: Minimal USE adjustments
+      - name: Minimal USE configuration
         run: |
           sudo mkdir -p /gentoo/etc/portage/package.use
 
-          if [[ "${{ matrix.profile }}" == "systemd" ]]; then
+          if [ "${{ matrix.profile }}" = "systemd" ]; then
             sudo tee /gentoo/etc/portage/package.use/cutefish > /dev/null <<EOF
-media-libs/tiff -webp
-sys-apps/systemd policykit
-EOF
+          media-libs/tiff -webp
+          sys-apps/systemd policykit
+          EOF
           else
             sudo tee /gentoo/etc/portage/package.use/cutefish > /dev/null <<EOF
-media-libs/tiff -webp
-sys-auth/elogind
-EOF
+          media-libs/tiff -webp
+          sys-auth/elogind
+          EOF
           fi
 
       - name: Build Cutefish stack
