@@ -52,14 +52,14 @@ jobs:
       - name: Configure Portage
         run: |
           sudo tee /gentoo/etc/portage/make.conf > /dev/null <<EOF
-COMMON_FLAGS="-O2 -pipe"
-CFLAGS="\${COMMON_FLAGS}"
-CXXFLAGS="\${COMMON_FLAGS}"
-FEATURES="getbinpkg binpkg-request-signature -sandbox -usersandbox -ipc-sandbox -network-sandbox -pty"
-PORTAGE_BINHOST="https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/x86-64/"
-EMERGE_DEFAULT_OPTS="--jobs=1 --load-average=1 --quiet-build=y --nospinner --getbinpkg"
-ACCEPT_LICENSE="*"
-EOF
+          COMMON_FLAGS="-O2 -pipe"
+          CFLAGS="\${COMMON_FLAGS}"
+          CXXFLAGS="\${COMMON_FLAGS}"
+          FEATURES="getbinpkg binpkg-request-signature -sandbox -usersandbox -ipc-sandbox -network-sandbox -pty"
+          PORTAGE_BINHOST="https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/x86-64/"
+          EMERGE_DEFAULT_OPTS="--jobs=1 --load-average=1 --quiet-build=y --nospinner --getbinpkg"
+          ACCEPT_LICENSE="*"
+          EOF
 
       - name: Sync Portage
         run: |
@@ -75,15 +75,11 @@ EOF
 
       - name: Install binary toolchain
         run: |
-          sudo chroot /gentoo /bin/bash -lc "
-            emerge -gK sys-devel/binutils sys-devel/gcc sys-libs/glibc
-          "
+          sudo chroot /gentoo /bin/bash -lc "emerge -gK sys-devel/binutils sys-devel/gcc sys-libs/glibc"
 
       - name: Install base tools
         run: |
-          sudo chroot /gentoo /bin/bash -lc "
-            emerge -g app-eselect/eselect-repository dev-vcs/git
-          "
+          sudo chroot /gentoo /bin/bash -lc "emerge -g app-eselect/eselect-repository dev-vcs/git"
 
       - name: Add Cutefish overlay
         run: |
@@ -96,11 +92,11 @@ EOF
         run: |
           sudo mkdir -p /gentoo/etc/portage/package.accept_keywords
           sudo tee /gentoo/etc/portage/package.accept_keywords/cutefishos > /dev/null <<EOF
-sys-libs/libcutefish ~amd64
-sys-libs/fishui ~amd64
-sys-libs/cutefish-core ~amd64
-cutefish-base/* ~amd64
-EOF
+          sys-libs/libcutefish ~amd64
+          sys-libs/fishui ~amd64
+          sys-libs/cutefish-core ~amd64
+          cutefish-base/* ~amd64
+          EOF
 
       - name: Minimal USE config
         run: |
@@ -108,14 +104,14 @@ EOF
 
           if [ "${{ matrix.profile }}" = "systemd" ]; then
             sudo tee /gentoo/etc/portage/package.use/cutefish > /dev/null <<EOF
-media-libs/tiff -webp
-sys-apps/systemd policykit
-EOF
+            media-libs/tiff -webp
+            sys-apps/systemd policykit
+            EOF
           else
             sudo tee /gentoo/etc/portage/package.use/cutefish > /dev/null <<EOF
-media-libs/tiff -webp
-sys-auth/elogind
-EOF
+            media-libs/tiff -webp
+            sys-auth/elogind
+            EOF
           fi
 
       - name: Build Cutefish stack
